@@ -47,6 +47,11 @@ const Icons = {
       <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
     </svg>
   ),
+  Pencil: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
+    </svg>
+  ),
 };
 
 // --- TYPES ---
@@ -70,23 +75,72 @@ interface Okt {
   ovelser: Ovelse[];
 }
 
+interface Program {
+  id: number;
+  navn: string;
+  ovelser: string[]; // List of exercise names
+}
+
 // --- COMPONENTS ---
 
+
+// --- CONSTANTS ---
+const MANTRAS = [
+  "LET'S BULKING GO, BRO!",
+  "PAIN IS WEAKNESS LEAVING THE BULK, BRO!",
+  "SHUT UP AND BULK, BRO!",
+  "NO BULK, NO GLORY, BRO!",
+  "SQUAT TILL YOU BARF, BRO!",
+  "BULK UNTIL THE CASKET DROPS, BRO!",
+  "REAL BROS NEVER MISS BULK DAY!",
+  "BULK OR DIE, BRO!",
+  "YOUR GIRLFRIEND CALLED, SHE WANTS HER BULK BACK, BRO!",
+  "EAT BIG TO GET BIG, BULKBRO STYLE!",
+  "SECOND PLACE IS FOR BROS WHO DON'T BULK!",
+  "IF THE BAR AIN'T BENDING, YOU AIN'T BULKING, BRO!",
+  "BULK THE PAIN AWAY, BRO!",
+  "GO HARD OR GO HOME TO YOUR MAMA, BULKBRO!",
+  "THE ONLY THING SMALLER THAN YOUR BULK IS YOUR HEART, BRO!",
+  "EMBRACE THE BULK OR EMBRACE DEFEAT, BRO!",
+  "BULK TILL THE BUTTONS POP, BRO!",
+  "A BRO WITHOUT A BULK IS JUST A DUDE!",
+  "LIFT HEAVY, BULK HARD, REPEAT BRO!",
+  "WELCOME TO THE HOUSE OF BULK, BRO!",
+];
+
 export default function App() {
-  const [view, setView] = useState<'home' | 'new_workout' | 'history'>('home');
+  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program'>('home');
   const [workoutHistory, setWorkoutHistory] = useState<Okt[]>(() => {
     const saved = localStorage.getItem('workoutHistory');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [programs, setPrograms] = useState<Program[]>(() => {
+    const saved = localStorage.getItem('programs');
     return saved ? JSON.parse(saved) : [];
   });
   const [activeWorkout, setActiveWorkout] = useState<Okt | null>(() => {
     const saved = localStorage.getItem('activeWorkout');
     return saved ? JSON.parse(saved) : null;
   });
+  // Temporary state for creating a new program
+  const [newProgramName, setNewProgramName] = useState('');
+  const [newProgramExercises, setNewProgramExercises] = useState<string[]>([]);
+
+  const [mantra, setMantra] = useState('');
+
+  // --- EFFECT: SET RANDOM MANTRA ---
+  useEffect(() => {
+    setMantra(MANTRAS[Math.floor(Math.random() * MANTRAS.length)]);
+  }, []);
 
   // --- EFFECT: SAVE TO LOCALSTORAGE ---
   useEffect(() => {
     localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
   }, [workoutHistory]);
+
+  useEffect(() => {
+    localStorage.setItem('programs', JSON.stringify(programs));
+  }, [programs]);
 
   useEffect(() => {
     if (activeWorkout) {
@@ -98,12 +152,18 @@ export default function App() {
 
   // --- ACTIONS ---
 
-  const startNewWorkout = () => {
+  const startNewWorkout = (program?: Program) => {
     const nyOkt: Okt = {
       id: Date.now(),
-      navn: 'Kveldsøkt',
-      dato: new Date().toLocaleDateString('no-NO', { day: 'numeric', month: 'long', year: 'numeric' }),
-      ovelser: []
+      navn: program ? program.navn : 'Kveldsøkt',
+      dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      ovelser: program
+        ? program.ovelser.map(navn => ({
+          id: Date.now() + Math.random(),
+          navn: navn,
+          sett: [{ id: Date.now() + Math.random(), kg: 20, reps: 10, completed: false }]
+        }))
+        : []
     };
     setActiveWorkout(nyOkt);
     setView('new_workout');
@@ -160,41 +220,89 @@ export default function App() {
 
   const finishWorkout = () => {
     if (activeWorkout) {
-      setWorkoutHistory([activeWorkout, ...workoutHistory]);
+      const existingIndex = workoutHistory.findIndex(w => w.id === activeWorkout.id);
+      if (existingIndex >= 0) {
+        // Update existing workout
+        const updatedHistory = [...workoutHistory];
+        updatedHistory[existingIndex] = activeWorkout;
+        setWorkoutHistory(updatedHistory);
+      } else {
+        // Add new workout
+        setWorkoutHistory([activeWorkout, ...workoutHistory]);
+      }
     }
     setActiveWorkout(null);
     setView('home');
+    // Refresh mantra when returning to home
+    setMantra(MANTRAS[Math.floor(Math.random() * MANTRAS.length)]);
   };
+
+  const editWorkout = (workout: Okt) => {
+    // Create a deep copy to avoid mutating history directly while editing
+    setActiveWorkout(JSON.parse(JSON.stringify(workout)));
+    setView('new_workout');
+  };
+
+  const saveProgram = () => {
+    if (!newProgramName || newProgramExercises.length === 0) return;
+    const newProgram: Program = {
+      id: Date.now(),
+      navn: newProgramName,
+      ovelser: newProgramExercises
+    };
+    setPrograms([...programs, newProgram]);
+    setNewProgramName('');
+    setNewProgramExercises([]);
+    setView('home');
+  };
+
+  const deleteProgram = (id: number) => {
+    setPrograms(programs.filter(p => p.id !== id));
+  };
+
 
   // --- VIEWS ---
 
   if (view === 'home') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 pb-20 text-center relative overflow-hidden font-sans bg-slate-50">
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 pb-20 text-center relative overflow-hidden font-sans bg-slate-900 text-white">
+
+        {/* Background Image */}
+        <div
+          className="absolute inset-0 bg-cover bg-center z-0"
+          style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&q=80&w=400")' }}
+        />
+
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-indigo-950/40 z-0 backdrop-blur-[2px]" />
 
         {/* LOGO AREA */}
-        <div className="mb-8 relative z-10 animate-fade-in-up">
-          <div className="w-28 h-28 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-lg border-[6px] border-white mx-auto mb-6 transform hover:scale-105 transition-transform duration-300">
-            <Icons.Dumbbell className="text-white w-12 h-12 transform -rotate-45" />
+        <div className="mb-8 relative z-10 animate-fade-in-up flex flex-col items-center">
+          <div className="w-28 h-28 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-lg border-[6px] border-white/20 mx-auto mb-6 transform hover:scale-105 transition-transform duration-300">
+            <span className="text-white font-black italic text-4xl">BB</span>
           </div>
-          <h1 className="text-[3.5rem] leading-none font-black text-slate-900 italic tracking-tighter mb-2">BULKBRO</h1>
-          <p className="text-indigo-400 font-bold uppercase tracking-[0.2em] text-[10px] sm:text-xs">Din Digitale Treningspartner</p>
+          <h1 className="text-[4rem] leading-none font-black text-white italic tracking-tighter mb-2 drop-shadow-lg">BULKBRO</h1>
+          <p className="text-indigo-200 font-bold uppercase tracking-[0.2em] text-[10px] sm:text-xs">Din Digitale Treningspartner</p>
+
+          <div className="mt-8 px-4 py-3 bg-black/30 rounded-full backdrop-blur-md border border-white/10">
+            <p className="text-white font-black italic uppercase text-xs tracking-wider animate-pulse">{mantra}</p>
+          </div>
         </div>
 
         {/* STATS CARDS */}
         <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-12 relative z-10 animate-fade-in-up delay-100">
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm flex flex-col items-start gap-3 hover:shadow-md transition-shadow">
-            <Icons.Activity className="w-6 h-6 text-slate-900" />
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
+            <Icons.Activity className="w-6 h-6 text-white" />
             <div className="text-left">
-              <p className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-0.5">Økter Totalt</p>
-              <p className="text-2xl font-black text-slate-900 italic">{workoutHistory.length}</p>
+              <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Økter Totalt</p>
+              <p className="text-2xl font-black text-white italic">{workoutHistory.length}</p>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm flex flex-col items-start gap-3 hover:shadow-md transition-shadow">
-            <Icons.Trophy className="w-6 h-6 text-slate-900" />
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
+            <Icons.Trophy className="w-6 h-6 text-white" />
             <div className="text-left">
-              <p className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-0.5">PRs Satt</p>
-              <p className="text-2xl font-black text-slate-900 italic">0</p>
+              <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">PRs Satt</p>
+              <p className="text-2xl font-black text-white italic">0</p>
             </div>
           </div>
         </div>
@@ -202,27 +310,178 @@ export default function App() {
         {/* BUTTONS */}
         <div className="w-full max-w-sm space-y-4 relative z-10 animate-fade-in-up delay-200">
           <button
-            onClick={startNewWorkout}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider"
+            onClick={() => setView('select_program')}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-6 rounded-full shadow-xl shadow-indigo-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
           >
             <Icons.Plus className="w-6 h-6 stroke-[3px]" />
             Start Ny Økt
           </button>
 
           <button
-            onClick={() => setView('history')}
-            className="w-full bg-white hover:bg-slate-50 text-slate-900 font-black py-6 rounded-full shadow-sm border border-slate-100 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider group"
+            onClick={() => setView('create_program')}
+            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
           >
-            <Icons.History className="w-6 h-6 text-indigo-600 group-hover:rotate-[-20deg] transition-transform" />
+            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
+            Lag Program
+          </button>
+
+          <button
+            onClick={() => setView('history')}
+            className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-6 rounded-full shadow-sm border border-white/10 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider group backdrop-blur-md"
+          >
+            <Icons.History className="w-6 h-6 text-white group-hover:rotate-[-20deg] transition-transform" />
             Historikk
           </button>
         </div>
 
-        {/* Decorative Blur */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-          <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-indigo-50/50 rounded-full blur-3xl -z-10"></div>
-        </div>
+      </div>
+    );
+  }
 
+  if (view === 'create_program') {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView('home')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Lag Program</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
+          <div className="space-y-4">
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Program Navn</label>
+            <input
+              type="text"
+              value={newProgramName}
+              onChange={(e) => setNewProgramName(e.target.value)}
+              className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
+              placeholder="F.eks. Helkropp A"
+            />
+          </div>
+
+          <div className="space-y-4">
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Øvelser ({newProgramExercises.length})</label>
+            {newProgramExercises.map((exName, idx) => (
+              <div key={idx} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
+                <span className="font-bold text-slate-700 uppercase tracking-tight">{exName}</span>
+                <button
+                  onClick={() => setNewProgramExercises(newProgramExercises.filter((_, i) => i !== idx))}
+                  className="text-slate-300 hover:text-red-400 p-2"
+                >
+                  <Icons.Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            ))}
+
+            <div className="relative group mt-4">
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setNewProgramExercises([...newProgramExercises, e.target.value]);
+                    e.target.value = "";
+                  }
+                }}
+                className="w-full appearance-none p-4 rounded-[2rem] bg-indigo-50 text-indigo-600 font-bold text-sm border-2 border-indigo-100 hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none transition-all text-center cursor-pointer uppercase tracking-wider"
+              >
+                <option value="">+ Legg til øvelse i program</option>
+                <option value="Knebøy">Knebøy</option>
+                <option value="Benkpress">Benkpress</option>
+                <option value="Markløft">Markløft</option>
+                <option value="Militærpress">Militærpress</option>
+                <option value="Nedtrekk">Nedtrekk</option>
+                <option value="Roing">Roing</option>
+                <option value="Biceps Curl">Biceps Curl</option>
+                <option value="Franskpress">Franskpress</option>
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={saveProgram}
+            disabled={!newProgramName || newProgramExercises.length === 0}
+            className="w-full bg-slate-900 disabled:bg-slate-300 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mt-12"
+          >
+            <Icons.CheckCircle2 className="w-6 h-6" />
+            Lagre Program
+          </button>
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'select_program') {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView('home')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Velg Økt</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-6 space-y-4 mt-6">
+          {/* Empty Workout Option */}
+          <button
+            onClick={() => startNewWorkout()}
+            className="w-full bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md hover:border-indigo-200 transition-all group text-left"
+          >
+            <div className="w-16 h-16 bg-slate-100 rounded-3xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+              <Icons.Plus className="w-8 h-8 text-slate-300 group-hover:text-indigo-500" />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter italic">Tom Økt</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Start uten program</p>
+            </div>
+          </button>
+
+          <div className="h-px bg-slate-100 my-6"></div>
+
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4 mb-2">Dine Programmer</p>
+
+          {programs.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-slate-400 font-bold italic mb-4">Ingen programmer funnet</p>
+              <button onClick={() => setView('create_program')} className="text-indigo-500 font-bold underline uppercase tracking-wider text-sm">Lag ditt første program</button>
+            </div>
+          ) : (
+            programs.map(program => (
+              <div key={program.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 group hover:shadow-md hover:border-indigo-200 transition-all relative overflow-hidden">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-black text-slate-900 text-2xl uppercase tracking-tighter italic">{program.navn}</h3>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{program.ovelser.length} Øvelser</p>
+                  </div>
+                  <button onClick={() => deleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors">
+                    <Icons.Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {program.ovelser.slice(0, 3).map((ex, i) => (
+                    <span key={i} className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">{ex}</span>
+                  ))}
+                  {program.ovelser.length > 3 && (
+                    <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">+{program.ovelser.length - 3}</span>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => startNewWorkout(program)}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl uppercase tracking-widest text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"
+                >
+                  Start Økt <Icons.Dumbbell className="w-4 h-4" />
+                </button>
+              </div>
+            ))
+          )}
+        </main>
       </div>
     );
   }
@@ -237,13 +496,16 @@ export default function App() {
           >
             <Icons.ChevronLeft className="w-8 h-8" />
           </button>
-          <input
-            type="text"
-            value={activeWorkout.navn}
-            onChange={(e) => setActiveWorkout({ ...activeWorkout, navn: e.target.value })}
-            className="flex-1 text-2xl font-black bg-transparent border-none focus:ring-0 text-slate-800 uppercase tracking-tighter italic placeholder-slate-300 min-w-0"
-            placeholder="Navn på økt"
-          />
+          <div className="flex-1 min-w-0">
+            <input
+              type="text"
+              value={activeWorkout.navn}
+              onChange={(e) => setActiveWorkout({ ...activeWorkout, navn: e.target.value })}
+              className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 text-slate-800 uppercase tracking-tighter italic placeholder-slate-300 min-w-0 p-0"
+              placeholder="Navn på økt"
+            />
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{activeWorkout.dato}</p>
+          </div>
           <button
             onClick={finishWorkout}
             className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200 transition-all active:scale-95"
@@ -309,8 +571,8 @@ export default function App() {
                       <button
                         onClick={() => toggleSetComplete(exIdx, sIdx)}
                         className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${set.completed
-                            ? 'bg-green-500 text-white shadow-lg shadow-green-200'
-                            : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                          ? 'bg-green-500 text-white shadow-lg shadow-green-200'
+                          : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
                           }`}
                       >
                         <Icons.Check className="w-6 h-6" />
@@ -392,6 +654,15 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        editWorkout(w);
+                      }}
+                      className="p-2 mb-2 bg-slate-100 rounded-full text-slate-400 hover:bg-indigo-100 hover:text-indigo-600 transition-colors"
+                    >
+                      <Icons.Pencil className="w-4 h-4" />
+                    </button>
                     <span className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-indigo-100">
                       {w.ovelser.length} Øvelser
                     </span>
