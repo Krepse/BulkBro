@@ -47,6 +47,12 @@ const Icons = {
       <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
     </svg>
   ),
+
+  ClipboardList: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" />
+    </svg>
+  ),
   Pencil: ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
@@ -109,10 +115,16 @@ const MANTRAS = [
 ];
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program'>('home');
+  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program' | 'workout_details' | 'edit_program_form'>('home');
   const [workoutHistory, setWorkoutHistory] = useState<Okt[]>(() => {
-    const saved = localStorage.getItem('workoutHistory');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('workoutHistory');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("Failed to parse workout history", e);
+      return [];
+    }
   });
   const [programs, setPrograms] = useState<Program[]>(() => {
     const saved = localStorage.getItem('programs');
@@ -127,6 +139,10 @@ export default function App() {
   const [newProgramExercises, setNewProgramExercises] = useState<string[]>([]);
 
   const [mantra, setMantra] = useState('');
+  const [selectedWorkout, setSelectedWorkout] = useState<Okt | null>(null);
+
+  // --- PROGRAM MANAGEMENT STATE ---
+  const [editingProgramId, setEditingProgramId] = useState<number | null>(null);
 
   // --- EFFECT: SET RANDOM MANTRA ---
   useEffect(() => {
@@ -243,21 +259,49 @@ export default function App() {
     setView('new_workout');
   };
 
-  const saveProgram = () => {
-    if (!newProgramName || newProgramExercises.length === 0) return;
-    const newProgram: Program = {
-      id: Date.now(),
-      navn: newProgramName,
-      ovelser: newProgramExercises
-    };
-    setPrograms([...programs, newProgram]);
+  const startCreateProgram = () => {
+    setEditingProgramId(null);
     setNewProgramName('');
     setNewProgramExercises([]);
-    setView('home');
+    setView('edit_program_form');
   };
+
+  const openEditProgram = (program: Program) => {
+    setEditingProgramId(program.id);
+    setNewProgramName(program.navn);
+    setNewProgramExercises([...program.ovelser]);
+    setView('edit_program_form');
+  };
+
+  const saveProgram = () => {
+    if (!newProgramName || newProgramExercises.length === 0) return;
+
+    if (editingProgramId) {
+      setPrograms(programs.map(p => p.id === editingProgramId ? { ...p, navn: newProgramName, ovelser: newProgramExercises } : p));
+    } else {
+      const newProgram: Program = {
+        id: Date.now(),
+        navn: newProgramName,
+        ovelser: newProgramExercises
+      };
+      setPrograms([...programs, newProgram]);
+    }
+
+    setEditingProgramId(null);
+    setNewProgramName('');
+    setNewProgramExercises([]);
+    setView('create_program');
+  };
+
+
 
   const deleteProgram = (id: number) => {
     setPrograms(programs.filter(p => p.id !== id));
+  };
+
+  const openWorkoutDetails = (workout: Okt) => {
+    setSelectedWorkout(workout);
+    setView('workout_details');
   };
 
 
@@ -321,8 +365,8 @@ export default function App() {
             onClick={() => setView('create_program')}
             className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
           >
-            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
-            Lag Program
+            <Icons.ClipboardList className="w-6 h-6" />
+            Programmer
           </button>
 
           <button
@@ -338,6 +382,8 @@ export default function App() {
     );
   }
 
+
+
   if (view === 'create_program') {
     return (
       <div className="min-h-screen bg-slate-50 pb-40">
@@ -348,7 +394,71 @@ export default function App() {
           >
             <Icons.ChevronLeft className="w-8 h-8" />
           </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Lag Program</h1>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Programmer</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-6 space-y-4 mt-6">
+          <button
+            onClick={startCreateProgram}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-[2rem] shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mb-8"
+          >
+            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
+            Nytt Program
+          </button>
+
+          {programs.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 font-bold italic">
+              Ingen programmer lagret ennå.
+            </div>
+          ) : (
+            programs.map(program => (
+              <div
+                key={program.id}
+                className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 group hover:shadow-md hover:border-indigo-200 transition-all relative overflow-hidden cursor-pointer"
+                onClick={() => openEditProgram(program)}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-black text-slate-900 text-2xl uppercase tracking-tighter italic">{program.navn}</h3>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{program.ovelser.length} Øvelser</p>
+                  </div>
+                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => openEditProgram(program)} className="text-slate-200 hover:text-indigo-500 transition-colors p-2">
+                      <Icons.Pencil className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => deleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors p-2">
+                      <Icons.Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {program.ovelser.slice(0, 3).map((ex, i) => (
+                    <span key={i} className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">{ex}</span>
+                  ))}
+                  {program.ovelser.length > 3 && (
+                    <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">+{program.ovelser.length - 3}</span>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'edit_program_form') {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView('create_program')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingProgramId ? 'Rediger Program' : 'Nytt Program'}</h1>
         </header>
 
         <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
@@ -622,6 +732,8 @@ export default function App() {
     );
   }
 
+
+
   if (view === 'history') {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -646,7 +758,11 @@ export default function App() {
           ) : (
             <div className="space-y-4">
               {workoutHistory.map(w => (
-                <div key={w.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center group hover:shadow-md hover:border-indigo-100 transition-all">
+                <button
+                  key={w.id}
+                  onClick={() => openWorkoutDetails(w)}
+                  className="w-full bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center group hover:shadow-md hover:border-indigo-100 transition-all text-left"
+                >
                   <div>
                     <h3 className="font-black text-slate-800 text-xl uppercase tracking-tighter italic mb-1">{w.navn}</h3>
                     <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest">
@@ -654,26 +770,67 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        editWorkout(w);
-                      }}
-                      className="p-2 mb-2 bg-slate-100 rounded-full text-slate-400 hover:bg-indigo-100 hover:text-indigo-600 transition-colors"
-                    >
-                      <Icons.Pencil className="w-4 h-4" />
-                    </button>
                     <span className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-indigo-100">
-                      {w.ovelser.length} Øvelser
+                      {w.ovelser?.length || 0} Øvelser
                     </span>
                     <span className="text-slate-300 text-[10px] font-bold">
-                      {w.ovelser.reduce((acc, curr) => acc + curr.sett.length, 0)} DOM
+                      {w.ovelser?.reduce((acc, curr) => acc + (curr.sett?.length || 0), 0) || 0} SETT
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'workout_details' && selectedWorkout) {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView('history')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Øktdetaljer</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-6 space-y-6 mt-2">
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 text-center">
+            <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic mb-2">{selectedWorkout.navn}</h2>
+            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">{selectedWorkout.dato}</p>
+          </div>
+
+          <div className="space-y-4">
+            {selectedWorkout.ovelser.map((ex, i) => (
+              <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100/50">
+                <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter italic mb-4 pl-4 border-l-4 border-indigo-500">{ex.navn}</h3>
+                <div className="space-y-2">
+                  {ex.sett.map((set, sIdx) => (
+                    <div key={sIdx} className="flex justify-between items-center px-4 py-2 bg-slate-50 rounded-xl">
+                      <span className="font-bold text-slate-400 text-xs uppercase tracking-wider">Sett {sIdx + 1}</span>
+                      <div className="flex gap-4">
+                        <span className="font-black text-slate-700">{set.kg} <span className="text-[10px] text-slate-400 font-bold">KG</span></span>
+                        <span className="font-black text-slate-700">{set.reps} <span className="text-[10px] text-slate-400 font-bold">REPS</span></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => editWorkout(selectedWorkout)}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mt-8"
+          >
+            <Icons.Pencil className="w-5 h-5" />
+            Rediger Økt
+          </button>
         </main>
       </div>
     );
