@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getStravaAuthUrl, exchangeToken, isStravaConnected, disconnectStrava, getActivities, getActivityStreams } from './services/strava';
 
 // --- ICONS (Inline Lucid-style SVGs) ---
 const Icons = {
@@ -58,6 +59,12 @@ const Icons = {
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
     </svg>
   ),
+  Settings: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2-.3l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 .3l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 .3l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2-.3l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
 };
 
 // --- TYPES ---
@@ -66,6 +73,7 @@ interface Sett {
   kg: number;
   reps: number;
   completed: boolean;
+  completedAt?: string; // ISO timestamp
 }
 
 interface Ovelse {
@@ -78,6 +86,8 @@ interface Okt {
   id: number;
   navn: string;
   dato: string;
+  startTime?: string; // ISO timestamp
+  endTime?: string; // ISO timestamp
   ovelser: Ovelse[];
 }
 
@@ -115,7 +125,7 @@ const MANTRAS = [
 ];
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program' | 'workout_details' | 'edit_program_form'>('home');
+  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program' | 'workout_details' | 'edit_program_form' | 'settings'>('home');
   const [workoutHistory, setWorkoutHistory] = useState<Okt[]>(() => {
     try {
       const saved = localStorage.getItem('workoutHistory');
@@ -140,6 +150,11 @@ export default function App() {
 
   const [mantra, setMantra] = useState('');
   const [selectedWorkout, setSelectedWorkout] = useState<Okt | null>(null);
+  const [stravaConnected, setStravaConnected] = useState(isStravaConnected());
+  // Strava Data State (Ephemeral for details view)
+  const [stravaActivity, setStravaActivity] = useState<any>(null);
+  const [hrData, setHrData] = useState<{ time: number, heartrate: number }[] | null>(null);
+  const [isFetchingStrava, setIsFetchingStrava] = useState(false);
 
   // --- PROGRAM MANAGEMENT STATE ---
   const [editingProgramId, setEditingProgramId] = useState<number | null>(null);
@@ -147,6 +162,21 @@ export default function App() {
   // --- EFFECT: SET RANDOM MANTRA ---
   useEffect(() => {
     setMantra(MANTRAS[Math.floor(Math.random() * MANTRAS.length)]);
+  }, []);
+
+  // --- EFFECT: CHECK FOR STRAVA AUTH CODE ---
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      exchangeToken(code).then((success) => {
+        if (success) {
+          setStravaConnected(true);
+          setView('settings');
+        }
+      });
+    }
   }, []);
 
   // --- EFFECT: SAVE TO LOCALSTORAGE ---
@@ -173,6 +203,7 @@ export default function App() {
       id: Date.now(),
       navn: program ? program.navn : 'Kveldsøkt',
       dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      startTime: new Date().toISOString(),
       ovelser: program
         ? program.ovelser.map(navn => ({
           id: Date.now() + Math.random(),
@@ -218,6 +249,12 @@ export default function App() {
     if (!activeWorkout) return;
     const updatedOvelser = [...activeWorkout.ovelser];
     updatedOvelser[exIdx].sett[setIdx].completed = !updatedOvelser[exIdx].sett[setIdx].completed;
+    // Set timestamp if completed, clear if uncompleted
+    if (updatedOvelser[exIdx].sett[setIdx].completed) {
+      updatedOvelser[exIdx].sett[setIdx].completedAt = new Date().toISOString();
+    } else {
+      delete updatedOvelser[exIdx].sett[setIdx].completedAt;
+    }
     setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
   };
 
@@ -236,15 +273,21 @@ export default function App() {
 
   const finishWorkout = () => {
     if (activeWorkout) {
-      const existingIndex = workoutHistory.findIndex(w => w.id === activeWorkout.id);
+      // Mark end time
+      const finishedWorkout = {
+        ...activeWorkout,
+        endTime: new Date().toISOString()
+      };
+
+      const existingIndex = workoutHistory.findIndex(w => w.id === finishedWorkout.id);
       if (existingIndex >= 0) {
         // Update existing workout
         const updatedHistory = [...workoutHistory];
-        updatedHistory[existingIndex] = activeWorkout;
+        updatedHistory[existingIndex] = finishedWorkout;
         setWorkoutHistory(updatedHistory);
       } else {
         // Add new workout
-        setWorkoutHistory([activeWorkout, ...workoutHistory]);
+        setWorkoutHistory([finishedWorkout, ...workoutHistory]);
       }
     }
     setActiveWorkout(null);
@@ -301,7 +344,136 @@ export default function App() {
 
   const openWorkoutDetails = (workout: Okt) => {
     setSelectedWorkout(workout);
+    setStravaActivity(null);
+    setHrData(null);
+    setIsFetchingStrava(false);
     setView('workout_details');
+  };
+
+  // --- EFFECT: FETCH STRAVA DATA FOR WORKOUT DETAILS ---
+  useEffect(() => {
+    if (view === 'workout_details' && selectedWorkout && stravaConnected && selectedWorkout.startTime) {
+      const fetchStravaData = async () => {
+        setIsFetchingStrava(true);
+        try {
+          // Time window: +/- 4 hours around workout start
+          const workoutStart = new Date(selectedWorkout.startTime!).getTime() / 1000;
+          const after = Math.floor(workoutStart - 14400);
+          const before = Math.floor(workoutStart + 14400);
+
+          const activities = await getActivities(after, before);
+
+          // Find closest activity by start time
+          if (activities && activities.length > 0) {
+            // Sort by proximity to workout start
+            const closest = activities.sort((a: any, b: any) => {
+              const diffA = Math.abs((new Date(a.start_date).getTime() / 1000) - workoutStart);
+              const diffB = Math.abs((new Date(b.start_date).getTime() / 1000) - workoutStart);
+              return diffA - diffB;
+            })[0];
+
+            setStravaActivity(closest);
+
+            // Fetch Streams
+            const streams = await getActivityStreams(closest.id);
+
+            if (streams) {
+              const timeStream = streams.find((s: any) => s.type === 'time')?.data;
+              const hrStream = streams.find((s: any) => s.type === 'heartrate')?.data;
+
+              if (timeStream && hrStream) {
+                const combined = timeStream.map((t: number, i: number) => ({
+                  time: t, // Seconds from start
+                  heartrate: hrStream[i]
+                }));
+                setHrData(combined);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch Strava data", error);
+        } finally {
+          setIsFetchingStrava(false);
+        }
+      };
+      fetchStravaData();
+    }
+  }, [view, selectedWorkout, stravaConnected]);
+
+  const getHRStatsForExercise = (exerciseIndex: number) => {
+    if (!selectedWorkout || !selectedWorkout.startTime || !stravaActivity || !hrData) return null;
+
+    // const workoutStart = new Date(selectedWorkout.startTime).getTime();
+    const activityStart = new Date(stravaActivity.start_date).getTime();
+    // const offset = (workoutStart - activityStart) / 1000; // offset in seconds
+
+    // Heuristic: Exercise starts when previous exercise ended (or workout start)
+    // Ends when last set completed.
+
+    // Find previous exercise end time
+    let startTime = selectedWorkout.startTime;
+    if (exerciseIndex > 0) {
+      // Loop back to find last completed set
+      for (let i = exerciseIndex - 1; i >= 0; i--) {
+        const sets = selectedWorkout.ovelser[i].sett;
+        const lastCompleted = sets.filter(s => s.completed && s.completedAt).pop();
+        if (lastCompleted && lastCompleted.completedAt) {
+          startTime = lastCompleted.completedAt;
+          break;
+        }
+      }
+    }
+
+    // End time: last completed set of this exercise
+    const currentSets = selectedWorkout.ovelser[exerciseIndex].sett;
+    const lastSet = currentSets.filter(s => s.completed && s.completedAt).pop();
+
+    if (!lastSet || !lastSet.completedAt) return null; // No timestamp for completion
+
+    const startSeconds = (new Date(startTime).getTime() - activityStart) / 1000;
+    const endSeconds = (new Date(lastSet.completedAt).getTime() - activityStart) / 1000;
+
+    // Filter HR Data
+    const slice = hrData.filter(d => d.time >= startSeconds && d.time <= endSeconds);
+    if (slice.length === 0) return null;
+
+    const avg = Math.round(slice.reduce((acc, curr) => acc + curr.heartrate, 0) / slice.length);
+    const max = Math.max(...slice.map(d => d.heartrate));
+
+    return { slice, avg, max };
+  };
+
+  const renderHeartRateGraph = (data: { time: number, heartrate: number }[]) => {
+    if (data.length < 2) return null;
+    // const padding = 2;
+    const width = 100; // viewBox units
+    const height = 40; // viewBox units
+
+    const minHR = Math.min(...data.map(d => d.heartrate));
+    const maxHR = Math.max(...data.map(d => d.heartrate));
+    const hrRange = maxHR - minHR || 1;
+
+    const startTime = data[0].time;
+    const timeRange = data[data.length - 1].time - startTime || 1;
+
+    const points = data.map(d => {
+      const x = ((d.time - startTime) / timeRange) * width;
+      const y = height - ((d.heartrate - minHR) / hrRange) * height; // Invert Y
+      return `${x},${y}`;
+    }).join(' ');
+
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12 overflow-visible">
+        <polyline
+          fill="none"
+          stroke="#FC4C02"
+          strokeWidth="2"
+          points={points}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
   };
 
 
@@ -375,6 +547,13 @@ export default function App() {
           >
             <Icons.History className="w-6 h-6 text-white group-hover:rotate-[-20deg] transition-transform" />
             Historikk
+          </button>
+
+          <button
+            onClick={() => setView('settings')}
+            className="w-12 h-12 mx-auto bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-full flex items-center justify-center transition-all active:scale-95 mt-8 backdrop-blur-md border border-white/5"
+          >
+            <Icons.Settings className="w-6 h-6" />
           </button>
         </div>
 
@@ -803,6 +982,32 @@ export default function App() {
           <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 text-center">
             <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic mb-2">{selectedWorkout.navn}</h2>
             <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">{selectedWorkout.dato}</p>
+
+            {stravaConnected && (
+              <div className="mt-4 flex flex-col items-center">
+                {isFetchingStrava ? (
+                  <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-wider animate-pulse">
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+                    Ser etter Strava-økt...
+                  </div>
+                ) : stravaActivity ? (
+                  <a
+                    href={`https://www.strava.com/activities/${stravaActivity.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 text-[#FC4C02] font-black text-xs uppercase tracking-wider bg-[#FC4C02]/10 px-3 py-1 rounded-full hover:bg-[#FC4C02]/20 transition-colors"
+                  >
+                    <Icons.Activity className="w-3 h-3" />
+                    Synkronisert med Strava
+                  </a>
+                ) : (
+                  <div className="flex items-center gap-2 text-slate-300 font-bold text-xs uppercase tracking-wider">
+                    <Icons.Activity className="w-3 h-3" />
+                    Ingen Strava-økt funnet
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -820,6 +1025,27 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
+                {/* HR GRAPH SECTION */}
+                {(() => {
+                  const stats = getHRStatsForExercise(i);
+                  if (stats) {
+                    return (
+                      <div className="mt-4 pt-4 border-t border-slate-100">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 bg-[#FC4C02]/10 rounded-lg flex items-center justify-center text-[#FC4C02]">
+                            <Icons.Activity className="w-4 h-4" />
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Puls</span>
+                          <span className="text-xs font-black text-slate-700 ml-auto">{stats.avg} AVG / {stats.max} MAX</span>
+                        </div>
+                        {renderHeartRateGraph(stats.slice)}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
               </div>
             ))}
           </div>
@@ -831,6 +1057,73 @@ export default function App() {
             <Icons.Pencil className="w-5 h-5" />
             Rediger Økt
           </button>
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'settings') {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-10">
+          <button
+            onClick={() => setView('home')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Innstillinger</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-6 space-y-6 mt-4">
+
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic mb-6 flex items-center gap-3">
+              <span className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center">
+                <Icons.Activity className="w-6 h-6" />
+              </span>
+              Integrasjoner
+            </h2>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-3xl border border-slate-100">
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 ${stravaConnected ? 'bg-[#FC4C02]' : 'bg-slate-300'} text-white rounded-2xl flex items-center justify-center font-black italic text-xs tracking-tighter`}>
+                    STRAVA
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 uppercase tracking-tight">Strava</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {stravaConnected ? 'Konto tilkoblet' : 'Koble til konto'}
+                    </p>
+                  </div>
+                </div>
+                {stravaConnected ? (
+                  <button
+                    onClick={() => {
+                      disconnectStrava();
+                      setStravaConnected(false);
+                    }}
+                    className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-600 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors"
+                  >
+                    Koble fra
+                  </button>
+                ) : (
+                  <a
+                    href={getStravaAuthUrl()}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors"
+                  >
+                    Koble til
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center py-8">
+            <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em]">BulkBro v1.0.1</p>
+          </div>
+
         </main>
       </div>
     );
