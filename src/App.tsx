@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { getStravaAuthUrl, exchangeToken, isStravaConnected, disconnectStrava, getActivities, getActivityStreams } from './services/strava';
+import { useState, useEffect } from 'react';
+import { getStravaAuthUrl, exchangeToken, isStravaConnected, disconnectStrava, getActivities, getActivityStreams, type StravaActivity } from './services/strava';
+import { type Exercise } from './data/exercises';
 
 // --- ICONS (Inline Lucid-style SVGs) ---
 const Icons = {
@@ -65,6 +66,11 @@ const Icons = {
       <circle cx="12" cy="12" r="3" />
     </svg>
   ),
+  Search: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
 };
 
 // --- TYPES ---
@@ -79,6 +85,7 @@ interface Sett {
 interface Ovelse {
   id: number;
   navn: string;
+  beskrivelse?: string;
   sett: Sett[];
 }
 
@@ -125,7 +132,27 @@ const MANTRAS = [
 ];
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program' | 'workout_details' | 'edit_program_form' | 'settings'>('home');
+  const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program' | 'workout_details' | 'edit_program_form' | 'settings' | 'select_exercise' | 'create_exercise' | 'exercise_library'>('home');
+  // Exercise Selector State
+  const [exerciseSearch, setExerciseSearch] = useState('');
+  const [returnView, setReturnView] = useState<'edit_program_form' | 'new_workout' | 'exercise_library'>('edit_program_form');
+
+  const [customExercises, setCustomExercises] = useState<Exercise[]>(() => {
+    try {
+      const saved = localStorage.getItem('customExercises');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse custom exercises", e);
+      return [];
+    }
+  });
+
+  // State for creating/editing new exercise
+  const [newExerciseName, setNewExerciseName] = useState('');
+  const [newExerciseDescription, setNewExerciseDescription] = useState('');
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
+
+
   const [workoutHistory, setWorkoutHistory] = useState<Okt[]>(() => {
     try {
       const saved = localStorage.getItem('workoutHistory');
@@ -137,12 +164,22 @@ export default function App() {
     }
   });
   const [programs, setPrograms] = useState<Program[]>(() => {
-    const saved = localStorage.getItem('programs');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('programs');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse programs", e);
+      return [];
+    }
   });
   const [activeWorkout, setActiveWorkout] = useState<Okt | null>(() => {
-    const saved = localStorage.getItem('activeWorkout');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('activeWorkout');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error("Failed to parse activeWorkout", e);
+      return null;
+    }
   });
   // Temporary state for creating a new program
   const [newProgramName, setNewProgramName] = useState('');
@@ -152,7 +189,7 @@ export default function App() {
   const [selectedWorkout, setSelectedWorkout] = useState<Okt | null>(null);
   const [stravaConnected, setStravaConnected] = useState(isStravaConnected());
   // Strava Data State (Ephemeral for details view)
-  const [stravaActivity, setStravaActivity] = useState<any>(null);
+  const [stravaActivity, setStravaActivity] = useState<StravaActivity | null>(null);
   const [hrData, setHrData] = useState<{ time: number, heartrate: number }[] | null>(null);
   const [isFetchingStrava, setIsFetchingStrava] = useState(false);
 
@@ -189,6 +226,10 @@ export default function App() {
   }, [programs]);
 
   useEffect(() => {
+    localStorage.setItem('customExercises', JSON.stringify(customExercises));
+  }, [customExercises]);
+
+  useEffect(() => {
     if (activeWorkout) {
       localStorage.setItem('activeWorkout', JSON.stringify(activeWorkout));
     } else {
@@ -216,11 +257,12 @@ export default function App() {
     setView('new_workout');
   };
 
-  const addExercise = (navn: string) => {
+  const addExercise = (navn: string, beskrivelse?: string) => {
     if (!navn || !activeWorkout) return;
     const nyOvelse: Ovelse = {
       id: Date.now(),
       navn: navn,
+      beskrivelse: beskrivelse,
       sett: [{ id: Date.now() + 1, kg: 20, reps: 10, completed: false }]
     };
     setActiveWorkout({
@@ -296,10 +338,81 @@ export default function App() {
     setMantra(MANTRAS[Math.floor(Math.random() * MANTRAS.length)]);
   };
 
+  const deleteWorkout = (id: number) => {
+    if (confirm('Er du sikker på at du vil slette denne økten?')) {
+      const updatedHistory = workoutHistory.filter(w => w.id !== id);
+      setWorkoutHistory(updatedHistory);
+      setSelectedWorkout(null);
+      setStravaActivity(null);
+      setHrData(null);
+      setIsFetchingStrava(false);
+      setView('history');
+    }
+  };
+
   const editWorkout = (workout: Okt) => {
     // Create a deep copy to avoid mutating history directly while editing
     setActiveWorkout(JSON.parse(JSON.stringify(workout)));
     setView('new_workout');
+  };
+
+  const handleSelectExercise = (exercise: Exercise) => {
+    if (returnView === 'edit_program_form') {
+      // For programs, we currently only store names. 
+      // This might need refactoring if we want description in programs too.
+      // For now, we'll append description to name if present for uniqueness/context in programs
+      const nameToStore = exercise.description ? `${exercise.name} (${exercise.description})` : exercise.name;
+      setNewProgramExercises([...newProgramExercises, nameToStore]);
+      setView('edit_program_form');
+    } else if (returnView === 'new_workout') {
+      addExercise(exercise.name, exercise.description);
+      setView('new_workout');
+    }
+  };
+
+  const saveNewExercise = () => {
+    if (!newExerciseName) return;
+
+    if (editingExerciseId) {
+      // Update existing
+      setCustomExercises(customExercises.map(ex =>
+        ex.id === editingExerciseId
+          ? { ...ex, name: newExerciseName, description: newExerciseDescription }
+          : ex
+      ));
+      setEditingExerciseId(null);
+    } else {
+      // Create new
+      const newEx: Exercise = {
+        id: crypto.randomUUID(),
+        name: newExerciseName,
+        description: newExerciseDescription
+      };
+      setCustomExercises([...customExercises, newEx]);
+    }
+
+    setNewExerciseName('');
+    setNewExerciseDescription('');
+    setView(returnView === 'exercise_library' ? 'exercise_library' : 'select_exercise');
+  };
+
+  const startEditExercise = (exercise: Exercise) => {
+    setNewExerciseName(exercise.name);
+    setNewExerciseDescription(exercise.description || '');
+    setEditingExerciseId(exercise.id);
+    setView('create_exercise');
+  };
+
+  const deleteExercise = (id: string) => {
+    if (confirm('Er du sikker på at du vil slette denne øvelsen permanent?')) {
+      setCustomExercises(customExercises.filter(ex => ex.id !== id));
+    }
+  };
+
+  const openExerciseSelector = (fromView: 'edit_program_form' | 'new_workout' | 'exercise_library') => {
+    setReturnView(fromView);
+    setExerciseSearch('');
+    setView('select_exercise');
   };
 
   const startCreateProgram = () => {
@@ -542,6 +655,14 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setView('exercise_library')}
+            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
+          >
+            <Icons.Dumbbell className="w-6 h-6" />
+            Øvelsesbibliotek
+          </button>
+
+          <button
             onClick={() => setView('history')}
             className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-6 rounded-full shadow-sm border border-white/10 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider group backdrop-blur-md"
           >
@@ -667,25 +788,13 @@ export default function App() {
             ))}
 
             <div className="relative group mt-4">
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setNewProgramExercises([...newProgramExercises, e.target.value]);
-                    e.target.value = "";
-                  }
-                }}
-                className="w-full appearance-none p-4 rounded-[2rem] bg-indigo-50 text-indigo-600 font-bold text-sm border-2 border-indigo-100 hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none transition-all text-center cursor-pointer uppercase tracking-wider"
+              <button
+                onClick={() => openExerciseSelector('edit_program_form')}
+                className="w-full p-4 rounded-[2rem] bg-indigo-50 text-indigo-600 font-bold text-sm border-2 border-indigo-100 hover:border-indigo-300 hover:bg-indigo-100 transition-all text-center uppercase tracking-wider flex items-center justify-center gap-2"
               >
-                <option value="">+ Legg til øvelse i program</option>
-                <option value="Knebøy">Knebøy</option>
-                <option value="Benkpress">Benkpress</option>
-                <option value="Markløft">Markløft</option>
-                <option value="Militærpress">Militærpress</option>
-                <option value="Nedtrekk">Nedtrekk</option>
-                <option value="Roing">Roing</option>
-                <option value="Biceps Curl">Biceps Curl</option>
-                <option value="Franskpress">Franskpress</option>
-              </select>
+                <Icons.Search className="w-5 h-5" />
+                + Legg til øvelse
+              </button>
             </div>
           </div>
 
@@ -697,6 +806,216 @@ export default function App() {
             <Icons.CheckCircle2 className="w-6 h-6" />
             Lagre Program
           </button>
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'create_exercise') {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView(returnView === 'exercise_library' ? 'exercise_library' : 'select_exercise')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingExerciseId ? 'Rediger Øvelse' : 'Ny Øvelse'}</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
+          <div className="space-y-4">
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Navn</label>
+            <input
+              type="text"
+              value={newExerciseName}
+              onChange={(e) => setNewExerciseName(e.target.value)}
+              className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
+              placeholder="F.eks. Benkpress"
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-4">
+            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Beskrivelse (Valgfritt)</label>
+            <input
+              type="text"
+              value={newExerciseDescription}
+              onChange={(e) => setNewExerciseDescription(e.target.value)}
+              className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
+              placeholder="F.eks. Stang / Kabel / Maskin"
+            />
+          </div>
+
+          <button
+            onClick={saveNewExercise}
+            disabled={!newExerciseName}
+            className="w-full bg-slate-900 disabled:bg-slate-300 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mt-12"
+          >
+            <Icons.CheckCircle2 className="w-6 h-6" />
+            {editingExerciseId ? 'Oppdater Øvelse' : 'Lagre Øvelse'}
+          </button>
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'exercise_library') {
+    const filteredExercises = customExercises.filter(ex => {
+      const matchesSearch = ex.name.toLowerCase().includes(exerciseSearch.toLowerCase());
+      return matchesSearch;
+    });
+
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView('home')}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Øvelsesbibliotek</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-4 space-y-6 mt-2">
+          {/* Action: Create New */}
+          <button
+            onClick={() => {
+              setNewExerciseName('');
+              setNewExerciseDescription('');
+              setEditingExerciseId(null);
+              setReturnView('exercise_library'); // Set return view for when exercise is saved
+              setView('create_exercise');
+            }}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-[2rem] shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mb-8"
+          >
+            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
+            Ny Øvelse
+          </button>
+
+          {/* Search */}
+          <div className="relative">
+            <Icons.Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              value={exerciseSearch}
+              onChange={(e) => setExerciseSearch(e.target.value)}
+              placeholder="Søk etter øvelse..."
+              className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] border border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold outline-none"
+            />
+          </div>
+
+          {/* Exercise List */}
+          {customExercises.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 font-bold italic">
+              Ingen øvelser funnet. Lag en ny!
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {filteredExercises.map(ex => (
+                <div
+                  key={ex.id}
+                  className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all text-left group flex justify-between items-center"
+                >
+                  <div>
+                    <span className="block font-black text-slate-900 uppercase tracking-tighter text-lg">{ex.name}</span>
+                    {ex.description && (
+                      <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">{ex.description}</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => startEditExercise(ex)} className="text-slate-300 hover:text-indigo-500 transition-colors p-2">
+                      <Icons.Pencil className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => deleteExercise(ex.id)} className="text-slate-300 hover:text-red-400 transition-colors p-2">
+                      <Icons.Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  if (view === 'select_exercise') {
+    const filteredExercises = customExercises.filter(ex => {
+      const matchesSearch = ex.name.toLowerCase().includes(exerciseSearch.toLowerCase());
+      return matchesSearch;
+    });
+
+    return (
+      <div className="min-h-screen bg-slate-50 pb-40">
+        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setView(returnView)}
+            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <Icons.ChevronLeft className="w-8 h-8" />
+          </button>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Velg Øvelse</h1>
+        </header>
+
+        <main className="max-w-xl mx-auto p-4 space-y-6 mt-2">
+          {/* Action: Create New */}
+          <button
+            onClick={() => {
+              setNewExerciseName('');
+              setNewExerciseDescription('');
+              setView('create_exercise');
+            }}
+            className="w-full bg-white hover:bg-indigo-50 text-indigo-600 font-bold py-4 rounded-[2rem] shadow-sm border-2 border-indigo-100 hover:border-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-base uppercase tracking-wider mb-2"
+          >
+            <Icons.Plus className="w-5 h-5 stroke-[3px]" />
+            Opprett Ny Øvelse
+          </button>
+
+          {/* Search */}
+          <div className="relative">
+            <Icons.Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              value={exerciseSearch}
+              onChange={(e) => setExerciseSearch(e.target.value)}
+              placeholder="Søk etter øvelse..."
+              className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] border border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold outline-none"
+              autoFocus
+            />
+          </div>
+
+          {/* Exercise List */}
+          {customExercises.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 font-bold italic">
+              Ingen øvelser funnet. Lag en ny!
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {filteredExercises.map(ex => (
+                <button
+                  key={ex.id}
+                  onClick={() => handleSelectExercise(ex)}
+                  className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all text-left group"
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="block font-black text-slate-900 uppercase tracking-tighter text-lg">{ex.name}</span>
+                      {ex.description && (
+                        <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">{ex.description}</span>
+                      )}
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+                      <Icons.Plus className="w-5 h-5 text-slate-300 group-hover:text-indigo-500" />
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
         </main>
       </div>
     );
@@ -882,28 +1201,13 @@ export default function App() {
 
           <div className="pt-8 pb-12">
             <div className="relative group">
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    addExercise(e.target.value);
-                    e.target.value = "";
-                  }
-                }}
-                className="w-full appearance-none p-5 rounded-[2.5rem] bg-indigo-600 text-white font-bold text-lg shadow-xl shadow-indigo-200 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 transition-all text-center cursor-pointer uppercase tracking-wider"
+              <button
+                onClick={() => openExerciseSelector('new_workout')}
+                className="w-full p-5 rounded-[2.5rem] bg-indigo-600 text-white font-bold text-lg shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all text-center uppercase tracking-wider flex items-center justify-center gap-2"
               >
-                <option value="">+ Legg til ny øvelse</option>
-                <option value="Knebøy">Knebøy</option>
-                <option value="Benkpress">Benkpress</option>
-                <option value="Markløft">Markløft</option>
-                <option value="Militærpress">Militærpress</option>
-                <option value="Nedtrekk">Nedtrekk</option>
-                <option value="Roing">Roing</option>
-                <option value="Biceps Curl">Biceps Curl</option>
-                <option value="Franskpress">Franskpress</option>
-              </select>
-              <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-white/50">
                 <Icons.Plus className="w-6 h-6" />
-              </div>
+                + Legg til ny øvelse
+              </button>
             </div>
           </div>
         </main>
@@ -1050,13 +1354,22 @@ export default function App() {
             ))}
           </div>
 
-          <button
-            onClick={() => editWorkout(selectedWorkout)}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mt-8"
-          >
-            <Icons.Pencil className="w-5 h-5" />
-            Rediger Økt
-          </button>
+          <div className="flex gap-4 mt-8">
+            <button
+              onClick={() => editWorkout(selectedWorkout)}
+              className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider"
+            >
+              <Icons.Pencil className="w-5 h-5" />
+              Rediger Output
+            </button>
+
+            <button
+              onClick={() => deleteWorkout(selectedWorkout.id)}
+              className="w-20 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-full transition-all active:scale-95 flex items-center justify-center border border-red-100"
+            >
+              <Icons.Trash2 className="w-6 h-6" />
+            </button>
+          </div>
         </main>
       </div>
     );

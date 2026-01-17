@@ -1,6 +1,8 @@
 export interface StravaActivity {
+    id?: number;
     name: string;
     type: string;
+    start_date: string;
     start_date_local: string;
     elapsed_time: number;
     description: string;
@@ -130,8 +132,9 @@ export const mapWorkoutToStravaPayload = (workout: any): StravaActivity => {
     return {
         name: `BulkBro: ${workout.navn}`,
         type: 'WeightTraining',
+        start_date: new Date().toISOString(),
         start_date_local: new Date().toISOString(),
         elapsed_time: 3600, // Default 1 hour if not tracked
-        description: `Completed with BulkBro 💪\n\n${exerciseSummary}\n\n#bulkbro`,
+        description: `Completed with BulkBro 💪\n\n${exerciseSummary}\n\n#bulkbro`, // Changed by Antigravity: Added start_date
     };
 };
