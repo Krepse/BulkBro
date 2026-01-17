@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Link2, ExternalLink, Activity, Info, AlertCircle, Dumbbell, Trash2, Plus } from 'lucide-react';
+import { LogOut, Link2, ExternalLink, Activity, Info, AlertCircle, Dumbbell, Trash2, Plus, Pencil, X, Check } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { Exercise, ExerciseType } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
@@ -16,20 +16,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
     const [newExerciseType, setNewExerciseType] = React.useState<ExerciseType>('Stang');
     const [stravaConnected, setStravaConnected] = React.useState(false);
 
+    // New UX State
+    const [editingId, setEditingId] = React.useState<string | null>(null);
+    const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
+    const [editName, setEditName] = React.useState('');
+    const [editType, setEditType] = React.useState<ExerciseType>('Stang');
+
     const handleLogout = async () => {
         // Clear sensitive local data to prevent leakage to next user
         localStorage.removeItem('workoutHistory');
         localStorage.removeItem('programs');
         localStorage.removeItem('activeWorkout');
-        // We keep 'customExercises' as a cache, or clear it too? 
-        // Better clear everything to allow fresh sync.
         localStorage.removeItem('customExercises');
-
-        // Remove Admin bypass if present
         localStorage.removeItem('bb_admin_bypass');
 
         await supabase.auth.signOut();
-        // Force reload to reset all in-memory states
         window.location.reload();
     };
 
@@ -41,10 +42,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
             id: crypto.randomUUID(),
             name: newExerciseName,
             type: newExerciseType,
-            description: newExerciseType // backwards compatibility if needed
+            description: newExerciseType
         };
         onSaveExercise(newEx);
         setNewExerciseName('');
+    };
+
+    const startEditing = (ex: Exercise) => {
+        setEditingId(ex.id);
+        setEditName(ex.name);
+        setEditType(ex.type || 'Stang');
+    };
+
+    const saveEditing = (originalEx: Exercise) => {
+        onSaveExercise({
+            ...originalEx,
+            name: editName,
+            type: editType
+        });
+        setEditingId(null);
+    };
+
+    const cancelEditing = () => {
+        setEditingId(null);
+        setEditName('');
     };
 
     const handleConnectStrava = () => {
@@ -54,8 +75,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
         window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=${scope}`;
     };
 
+    const handleDeleteClick = (id: string) => {
+        setConfirmDeleteId(id);
+    };
+
+    const confirmDelete = () => {
+        if (confirmDeleteId) {
+            onDeleteExercise(confirmDeleteId);
+            setConfirmDeleteId(null);
+            setEditingId(null);
+        }
+    };
+
     return (
-        <div className="max-w-md mx-auto p-4 space-y-6 pb-24">
+        <div className="max-w-md mx-auto p-4 space-y-6 pb-24 relative">
+            {/* Confirmation Modal Overlay */}
+            {confirmDeleteId && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                    <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl w-full max-w-sm shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-2">Er du sikker?</h3>
+                        <p className="text-slate-400 mb-6 text-sm">Vil du slette denne øvelsen permanent for alle brukere?</p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="flex-1 py-3 bg-slate-800 text-white rounded-xl font-medium hover:bg-slate-700"
+                            >
+                                Avbryt
+                            </button>
+                            <button
+                                onClick={confirmDelete}
+                                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-500 shadow-lg shadow-red-900/20"
+                            >
+                                Slett
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <header className="flex items-center justify-between mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Innstillinger</h1>
@@ -116,22 +173,77 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
                     </button>
                 </form>
 
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
-                    {customExercises.map(ex => (
-                        <div key={ex.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800 group hover:border-slate-700 transition-colors">
-                            <div>
-                                <p className="font-medium text-white text-sm">{ex.name}</p>
-                                <p className="text-[10px] text-slate-500 uppercase tracking-wide">{ex.type}</p>
+                <div className="space-y-2">
+                    {customExercises.map(ex => {
+                        const isEditing = editingId === ex.id;
+                        return (
+                            <div key={ex.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isEditing ? 'bg-slate-800 border-purple-500 shadow-md' : 'bg-slate-950 border-slate-800 hover:border-slate-700'}`}>
+                                <div className="flex-1 mr-4">
+                                    {isEditing ? (
+                                        <div className="space-y-2">
+                                            <input
+                                                type="text"
+                                                value={editName}
+                                                onChange={e => setEditName(e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-purple-500"
+                                                autoFocus
+                                            />
+                                            <select
+                                                value={editType}
+                                                onChange={e => setEditType(e.target.value as ExerciseType)}
+                                                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-purple-500"
+                                            >
+                                                <option value="Stang">Stang</option>
+                                                <option value="Manualer">Manualer</option>
+                                                <option value="Kabel">Kabel</option>
+                                                <option value="Maskin">Maskin</option>
+                                                <option value="Egenvekt">Egenvekt</option>
+                                            </select>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <p className="font-medium text-white text-sm">{ex.name}</p>
+                                            <p className="text-[10px] text-slate-500 uppercase tracking-wide">{ex.type}</p>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isEditing ? (
+                                        <>
+                                            <button
+                                                onClick={() => saveEditing(ex)}
+                                                className="w-8 h-8 flex items-center justify-center bg-green-500/10 text-green-400 rounded-lg hover:bg-green-500 hover:text-white transition-colors"
+                                            >
+                                                <Check className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteClick(ex.id)}
+                                                className="w-8 h-8 flex items-center justify-center bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-colors"
+                                                title="Slett"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={cancelEditing}
+                                                className="w-8 h-8 flex items-center justify-center bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600"
+                                                title="Avbryt"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            onClick={() => startEditing(ex)}
+                                            className="text-slate-600 hover:text-blue-400 transition-colors p-2"
+                                            title="Rediger"
+                                        >
+                                            <Pencil className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                            <button
-                                onClick={() => onDeleteExercise(ex.id)}
-                                className="text-slate-600 hover:text-red-400 transition-colors p-2"
-                                title="Slett øvelse"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ))}
+                        );
+                    })}
                     {customExercises.length === 0 && <p className="text-slate-500 text-sm text-center py-4 italic">Ingen egne øvelser enda.</p>}
                 </div>
             </section>

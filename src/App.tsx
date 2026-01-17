@@ -191,7 +191,7 @@ export default function App() {
             onNavigate={handleNavigate}
             customExercises={customExercises}
             onDeleteExercise={deleteExercise}
-            onEditExercise={(ex) => { setEditingExercise(ex); setReturnView('exercise_library'); setView('create_exercise'); }}
+            onEditExercise={(ex) => saveExercise(ex)}
             onCreateExercise={() => { setEditingExercise(null); setReturnView('exercise_library'); setView('create_exercise'); }}
           />
         );
