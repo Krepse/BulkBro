@@ -1,207 +1,56 @@
 import { useState, useEffect } from 'react';
-import { getStravaAuthUrl, exchangeToken, isStravaConnected, disconnectStrava, getActivities, getActivityStreams, type StravaActivity } from './services/strava';
-import { type Exercise } from './data/exercises';
-
-// --- ICONS (Inline Lucid-style SVGs) ---
-const Icons = {
-  Dumbbell: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M6.5 6.5h11" /><path d="M6.5 17.5h11" /><path d="M6 20v-3.5a2.5 2.5 0 0 1 5 0V20" /><path d="M18 20v-3.5a2.5 2.5 0 0 0-5 0V20" /><path d="M6 4v3.5a2.5 2.5 0 0 0 5 0V4" /><path d="M18 4v3.5a2.5 2.5 0 0 1-5 0V4" />
-    </svg>
-  ),
-  Plus: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M5 12h14" /><path d="M12 5v14" />
-    </svg>
-  ),
-  History: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" />
-    </svg>
-  ),
-  ChevronLeft: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="m15 18-6-6 6-6" />
-    </svg>
-  ),
-  CheckCircle2: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" />
-    </svg>
-  ),
-  Trash2: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" />
-    </svg>
-  ),
-  Check: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  Activity: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </svg>
-  ),
-  Trophy: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
-    </svg>
-  ),
-
-  ClipboardList: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" />
-    </svg>
-  ),
-  Pencil: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
-    </svg>
-  ),
-  Settings: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2-.3l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 .3l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 .3l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2-.3l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ),
-  Search: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-    </svg>
-  ),
-};
-
-// --- TYPES ---
-interface Sett {
-  id: number;
-  kg: number;
-  reps: number;
-  completed: boolean;
-  completedAt?: string; // ISO timestamp
-}
-
-interface Ovelse {
-  id: number;
-  navn: string;
-  beskrivelse?: string;
-  sett: Sett[];
-}
-
-interface Okt {
-  id: number;
-  navn: string;
-  dato: string;
-  startTime?: string; // ISO timestamp
-  endTime?: string; // ISO timestamp
-  ovelser: Ovelse[];
-}
-
-interface Program {
-  id: number;
-  navn: string;
-  ovelser: string[]; // List of exercise names
-}
-
-// --- COMPONENTS ---
-
-
-// --- CONSTANTS ---
-const MANTRAS = [
-  "LET'S BULKING GO, BRO!",
-  "PAIN IS WEAKNESS LEAVING THE BULK, BRO!",
-  "SHUT UP AND BULK, BRO!",
-  "NO BULK, NO GLORY, BRO!",
-  "SQUAT TILL YOU BARF, BRO!",
-  "BULK UNTIL THE CASKET DROPS, BRO!",
-  "REAL BROS NEVER MISS BULK DAY!",
-  "BULK OR DIE, BRO!",
-  "YOUR GIRLFRIEND CALLED, SHE WANTS HER BULK BACK, BRO!",
-  "EAT BIG TO GET BIG, BULKBRO STYLE!",
-  "SECOND PLACE IS FOR BROS WHO DON'T BULK!",
-  "IF THE BAR AIN'T BENDING, YOU AIN'T BULKING, BRO!",
-  "BULK THE PAIN AWAY, BRO!",
-  "GO HARD OR GO HOME TO YOUR MAMA, BULKBRO!",
-  "THE ONLY THING SMALLER THAN YOUR BULK IS YOUR HEART, BRO!",
-  "EMBRACE THE BULK OR EMBRACE DEFEAT, BRO!",
-  "BULK TILL THE BUTTONS POP, BRO!",
-  "A BRO WITHOUT A BULK IS JUST A DUDE!",
-  "LIFT HEAVY, BULK HARD, REPEAT BRO!",
-  "WELCOME TO THE HOUSE OF BULK, BRO!",
-];
+import { exchangeToken } from './services/strava';
+import { useWorkout } from './hooks/useWorkout';
+import { HomeView } from './components/views/HomeView';
+import { ActiveWorkoutView } from './components/views/ActiveWorkoutView';
+import { HistoryView } from './components/views/HistoryView';
+import { WorkoutDetailsView } from './components/views/WorkoutDetailsView';
+import { ProgramsView } from './components/views/ProgramsView';
+import { ProgramFormView } from './components/views/ProgramFormView';
+import { ProgramSelectView } from './components/views/ProgramSelectView';
+import { ExerciseLibraryView } from './components/views/ExerciseLibraryView';
+import { ExerciseFormView } from './components/views/ExerciseFormView';
+import { ExerciseSelectView } from './components/views/ExerciseSelectView';
+import { SettingsView } from './components/views/SettingsView';
+import type { Exercise, Okt, Program } from './types';
 
 export default function App() {
+  // --- STATE ---
   const [view, setView] = useState<'home' | 'new_workout' | 'history' | 'create_program' | 'select_program' | 'workout_details' | 'edit_program_form' | 'settings' | 'select_exercise' | 'create_exercise' | 'exercise_library'>('home');
-  // Exercise Selector State
-  const [exerciseSearch, setExerciseSearch] = useState('');
   const [returnView, setReturnView] = useState<'edit_program_form' | 'new_workout' | 'exercise_library'>('edit_program_form');
 
-  const [customExercises, setCustomExercises] = useState<Exercise[]>(() => {
-    try {
-      const saved = localStorage.getItem('customExercises');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      console.error("Failed to parse custom exercises", e);
-      return [];
-    }
-  });
-
-  // State for creating/editing new exercise
-  const [newExerciseName, setNewExerciseName] = useState('');
-  const [newExerciseDescription, setNewExerciseDescription] = useState('');
-  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
-
-
-  const [workoutHistory, setWorkoutHistory] = useState<Okt[]>(() => {
-    try {
-      const saved = localStorage.getItem('workoutHistory');
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      console.error("Failed to parse workout history", e);
-      return [];
-    }
-  });
-  const [programs, setPrograms] = useState<Program[]>(() => {
-    try {
-      const saved = localStorage.getItem('programs');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      console.error("Failed to parse programs", e);
-      return [];
-    }
-  });
-  const [activeWorkout, setActiveWorkout] = useState<Okt | null>(() => {
-    try {
-      const saved = localStorage.getItem('activeWorkout');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      console.error("Failed to parse activeWorkout", e);
-      return null;
-    }
-  });
-  // Temporary state for creating a new program
-  const [newProgramName, setNewProgramName] = useState('');
-  const [newProgramExercises, setNewProgramExercises] = useState<string[]>([]);
-
-  const [mantra, setMantra] = useState('');
+  // Ephemeral State for Views
   const [selectedWorkout, setSelectedWorkout] = useState<Okt | null>(null);
-  const [stravaConnected, setStravaConnected] = useState(isStravaConnected());
-  // Strava Data State (Ephemeral for details view)
-  const [stravaActivity, setStravaActivity] = useState<StravaActivity | null>(null);
-  const [hrData, setHrData] = useState<{ time: number, heartrate: number }[] | null>(null);
-  const [isFetchingStrava, setIsFetchingStrava] = useState(false);
+  const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+  const [editingProgram, setEditingProgram] = useState<Program | null>(null);
 
-  // --- PROGRAM MANAGEMENT STATE ---
-  const [editingProgramId, setEditingProgramId] = useState<number | null>(null);
+  // Program Draft State
+  const [draftProgramName, setDraftProgramName] = useState('');
+  const [draftProgramExercises, setDraftProgramExercises] = useState<string[]>([]);
 
-  // --- EFFECT: SET RANDOM MANTRA ---
-  useEffect(() => {
-    setMantra(MANTRAS[Math.floor(Math.random() * MANTRAS.length)]);
-  }, []);
+  // --- HOOKS ---
+  const {
+    workoutHistory,
+    programs,
+    customExercises,
+    activeWorkout,
+    startNewWorkout,
+    addExercise,
+    removeExercise,
+    updateSet,
+    toggleSetComplete,
+    addSetToExercise,
+    updateWorkoutName,
+    finishWorkout,
+    deleteWorkout,
+    editWorkout,
+    saveProgram,
+    deleteProgram,
+    saveCustomExercise,
+    deleteCustomExercise
+  } = useWorkout();
 
-  // --- EFFECT: CHECK FOR STRAVA AUTH CODE ---
+  // --- STRAVA AUTH EFFECT ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
@@ -209,1238 +58,231 @@ export default function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
       exchangeToken(code).then((success) => {
         if (success) {
-          setStravaConnected(true);
           setView('settings');
         }
       });
     }
   }, []);
 
-  // --- EFFECT: SAVE TO LOCALSTORAGE ---
-  useEffect(() => {
-    localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
-  }, [workoutHistory]);
+  // --- NAVIGATION HANDLERS ---
+  const handleNavigate = (target: any) => setView(target);
 
-  useEffect(() => {
-    localStorage.setItem('programs', JSON.stringify(programs));
-  }, [programs]);
+  // --- EXERCISE HANDLERS ---
+  const handleCreateExercise = () => {
+    setEditingExercise(null);
+    setReturnView(view as any);
+    setView('create_exercise');
+  };
 
-  useEffect(() => {
-    localStorage.setItem('customExercises', JSON.stringify(customExercises));
-  }, [customExercises]);
+  const handleEditExercise = (ex: Exercise) => {
+    setEditingExercise(ex);
+    setReturnView('exercise_library');
+    setView('create_exercise');
+  };
 
-  useEffect(() => {
-    if (activeWorkout) {
-      localStorage.setItem('activeWorkout', JSON.stringify(activeWorkout));
-    } else {
-      localStorage.removeItem('activeWorkout');
-    }
-  }, [activeWorkout]);
-
-  // --- ACTIONS ---
-
-  const startNewWorkout = (program?: Program) => {
-    const nyOkt: Okt = {
-      id: Date.now(),
-      navn: program ? program.navn : 'Kveldsøkt',
-      dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      startTime: new Date().toISOString(),
-      ovelser: program
-        ? program.ovelser.map(navn => ({
-          id: Date.now() + Math.random(),
-          navn: navn,
-          sett: [{ id: Date.now() + Math.random(), kg: 20, reps: 10, completed: false }]
-        }))
-        : []
+  const handleSaveExercise = (name: string, type: string) => {
+    const newEx: Exercise = {
+      id: editingExercise ? editingExercise.id : crypto.randomUUID(),
+      name,
+      type: type as any
     };
-    setActiveWorkout(nyOkt);
-    setView('new_workout');
-  };
-
-  const addExercise = (navn: string, beskrivelse?: string) => {
-    if (!navn || !activeWorkout) return;
-    const nyOvelse: Ovelse = {
-      id: Date.now(),
-      navn: navn,
-      beskrivelse: beskrivelse,
-      sett: [{ id: Date.now() + 1, kg: 20, reps: 10, completed: false }]
-    };
-    setActiveWorkout({
-      ...activeWorkout,
-      ovelser: [...activeWorkout.ovelser, nyOvelse]
-    });
-  };
-
-  const removeExercise = (exId: number) => {
-    if (!activeWorkout) return;
-    setActiveWorkout({
-      ...activeWorkout,
-      ovelser: activeWorkout.ovelser.filter(e => e.id !== exId)
-    });
-  };
-
-  const updateSet = (exIdx: number, setIdx: number, field: 'kg' | 'reps', value: string) => {
-    if (!activeWorkout) return;
-    const updatedOvelser = [...activeWorkout.ovelser];
-    const val = value === '' ? 0 : Number(value);
-    updatedOvelser[exIdx].sett[setIdx][field] = val;
-    setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
-  };
-
-  const toggleSetComplete = (exIdx: number, setIdx: number) => {
-    if (!activeWorkout) return;
-    const updatedOvelser = [...activeWorkout.ovelser];
-    updatedOvelser[exIdx].sett[setIdx].completed = !updatedOvelser[exIdx].sett[setIdx].completed;
-    // Set timestamp if completed, clear if uncompleted
-    if (updatedOvelser[exIdx].sett[setIdx].completed) {
-      updatedOvelser[exIdx].sett[setIdx].completedAt = new Date().toISOString();
-    } else {
-      delete updatedOvelser[exIdx].sett[setIdx].completedAt;
-    }
-    setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
-  };
-
-  const addSetToExercise = (exIdx: number) => {
-    if (!activeWorkout) return;
-    const updatedOvelser = [...activeWorkout.ovelser];
-    const forrigeSett = updatedOvelser[exIdx].sett[updatedOvelser[exIdx].sett.length - 1];
-    updatedOvelser[exIdx].sett.push({
-      id: Date.now(),
-      kg: forrigeSett ? forrigeSett.kg : 20,
-      reps: forrigeSett ? forrigeSett.reps : 10,
-      completed: false
-    });
-    setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
-  };
-
-  const finishWorkout = () => {
-    if (activeWorkout) {
-      // Mark end time
-      const finishedWorkout = {
-        ...activeWorkout,
-        endTime: new Date().toISOString()
-      };
-
-      const existingIndex = workoutHistory.findIndex(w => w.id === finishedWorkout.id);
-      if (existingIndex >= 0) {
-        // Update existing workout
-        const updatedHistory = [...workoutHistory];
-        updatedHistory[existingIndex] = finishedWorkout;
-        setWorkoutHistory(updatedHistory);
-      } else {
-        // Add new workout
-        setWorkoutHistory([finishedWorkout, ...workoutHistory]);
-      }
-    }
-    setActiveWorkout(null);
-    setView('home');
-    // Refresh mantra when returning to home
-    setMantra(MANTRAS[Math.floor(Math.random() * MANTRAS.length)]);
-  };
-
-  const deleteWorkout = (id: number) => {
-    if (confirm('Er du sikker på at du vil slette denne økten?')) {
-      const updatedHistory = workoutHistory.filter(w => w.id !== id);
-      setWorkoutHistory(updatedHistory);
-      setSelectedWorkout(null);
-      setStravaActivity(null);
-      setHrData(null);
-      setIsFetchingStrava(false);
-      setView('history');
-    }
-  };
-
-  const editWorkout = (workout: Okt) => {
-    // Create a deep copy to avoid mutating history directly while editing
-    setActiveWorkout(JSON.parse(JSON.stringify(workout)));
-    setView('new_workout');
+    saveCustomExercise(newEx);
+    setView(returnView === 'exercise_library' ? 'exercise_library' : 'select_exercise');
   };
 
   const handleSelectExercise = (exercise: Exercise) => {
     if (returnView === 'edit_program_form') {
-      // For programs, we currently only store names. 
-      // This might need refactoring if we want description in programs too.
-      // For now, we'll append description to name if present for uniqueness/context in programs
-      const nameToStore = exercise.description ? `${exercise.name} (${exercise.description})` : exercise.name;
-      setNewProgramExercises([...newProgramExercises, nameToStore]);
+      const nameToStore = exercise.name;
+      // Note: Programs just store names, so type info is looked up in startNewWorkout
+      setDraftProgramExercises([...draftProgramExercises, nameToStore]);
       setView('edit_program_form');
     } else if (returnView === 'new_workout') {
-      addExercise(exercise.name, exercise.description);
+      addExercise(exercise.name, exercise.type);
       setView('new_workout');
     }
   };
 
-  const saveNewExercise = () => {
-    if (!newExerciseName) return;
-
-    if (editingExerciseId) {
-      // Update existing
-      setCustomExercises(customExercises.map(ex =>
-        ex.id === editingExerciseId
-          ? { ...ex, name: newExerciseName, description: newExerciseDescription }
-          : ex
-      ));
-      setEditingExerciseId(null);
-    } else {
-      // Create new
-      const newEx: Exercise = {
-        id: crypto.randomUUID(),
-        name: newExerciseName,
-        description: newExerciseDescription
-      };
-      setCustomExercises([...customExercises, newEx]);
-    }
-
-    setNewExerciseName('');
-    setNewExerciseDescription('');
-    setView(returnView === 'exercise_library' ? 'exercise_library' : 'select_exercise');
-  };
-
-  const startEditExercise = (exercise: Exercise) => {
-    setNewExerciseName(exercise.name);
-    setNewExerciseDescription(exercise.description || '');
-    setEditingExerciseId(exercise.id);
-    setView('create_exercise');
-  };
-
-  const deleteExercise = (id: string) => {
+  const handleDeleteExercise = (id: string) => {
     if (confirm('Er du sikker på at du vil slette denne øvelsen permanent?')) {
-      setCustomExercises(customExercises.filter(ex => ex.id !== id));
+      deleteCustomExercise(id);
     }
   };
 
-  const openExerciseSelector = (fromView: 'edit_program_form' | 'new_workout' | 'exercise_library') => {
-    setReturnView(fromView);
-    setExerciseSearch('');
-    setView('select_exercise');
-  };
-
-  const startCreateProgram = () => {
-    setEditingProgramId(null);
-    setNewProgramName('');
-    setNewProgramExercises([]);
+  // --- PROGRAM HANDLERS ---
+  const handleCreateProgram = () => {
+    setEditingProgram(null);
+    setDraftProgramName('');
+    setDraftProgramExercises([]);
     setView('edit_program_form');
   };
 
-  const openEditProgram = (program: Program) => {
-    setEditingProgramId(program.id);
-    setNewProgramName(program.navn);
-    setNewProgramExercises([...program.ovelser]);
+  const handleEditProgram = (program: Program) => {
+    setEditingProgram(program);
+    setDraftProgramName(program.navn);
+    setDraftProgramExercises([...program.ovelser]);
     setView('edit_program_form');
   };
 
-  const saveProgram = () => {
-    if (!newProgramName || newProgramExercises.length === 0) return;
-
-    if (editingProgramId) {
-      setPrograms(programs.map(p => p.id === editingProgramId ? { ...p, navn: newProgramName, ovelser: newProgramExercises } : p));
-    } else {
-      const newProgram: Program = {
-        id: Date.now(),
-        navn: newProgramName,
-        ovelser: newProgramExercises
-      };
-      setPrograms([...programs, newProgram]);
-    }
-
-    setEditingProgramId(null);
-    setNewProgramName('');
-    setNewProgramExercises([]);
+  const handleSaveProgram = (program: Program) => {
+    saveProgram(program);
     setView('create_program');
   };
 
-
-
-  const deleteProgram = (id: number) => {
-    setPrograms(programs.filter(p => p.id !== id));
+  const handleAddExerciseToDraftProgram = () => {
+    setReturnView('edit_program_form');
+    setView('select_exercise');
   };
 
-  const openWorkoutDetails = (workout: Okt) => {
+  // --- WORKOUT HANDLERS ---
+  const handleStartNewWorkout = (program?: Program) => {
+    startNewWorkout(program);
+    setView('new_workout');
+  };
+
+  const handleEditWorkout = (workout: Okt) => {
+    editWorkout(workout);
+    setView('new_workout');
+  };
+
+  const handleFinishWorkout = () => {
+    finishWorkout();
+    setView('home');
+  };
+
+  const handleSelectWorkoutDetails = (workout: Okt) => {
     setSelectedWorkout(workout);
-    setStravaActivity(null);
-    setHrData(null);
-    setIsFetchingStrava(false);
     setView('workout_details');
   };
 
-  // --- EFFECT: FETCH STRAVA DATA FOR WORKOUT DETAILS ---
-  useEffect(() => {
-    if (view === 'workout_details' && selectedWorkout && stravaConnected && selectedWorkout.startTime) {
-      const fetchStravaData = async () => {
-        setIsFetchingStrava(true);
-        try {
-          // Time window: +/- 4 hours around workout start
-          const workoutStart = new Date(selectedWorkout.startTime!).getTime() / 1000;
-          const after = Math.floor(workoutStart - 14400);
-          const before = Math.floor(workoutStart + 14400);
-
-          const activities = await getActivities(after, before);
-
-          // Find closest activity by start time
-          if (activities && activities.length > 0) {
-            // Sort by proximity to workout start
-            const closest = activities.sort((a: any, b: any) => {
-              const diffA = Math.abs((new Date(a.start_date).getTime() / 1000) - workoutStart);
-              const diffB = Math.abs((new Date(b.start_date).getTime() / 1000) - workoutStart);
-              return diffA - diffB;
-            })[0];
-
-            setStravaActivity(closest);
-
-            // Fetch Streams
-            const streams = await getActivityStreams(closest.id);
-
-            if (streams) {
-              const timeStream = streams.find((s: any) => s.type === 'time')?.data;
-              const hrStream = streams.find((s: any) => s.type === 'heartrate')?.data;
-
-              if (timeStream && hrStream) {
-                const combined = timeStream.map((t: number, i: number) => ({
-                  time: t, // Seconds from start
-                  heartrate: hrStream[i]
-                }));
-                setHrData(combined);
-              }
-            }
-          }
-        } catch (error) {
-          console.error("Failed to fetch Strava data", error);
-        } finally {
-          setIsFetchingStrava(false);
-        }
-      };
-      fetchStravaData();
-    }
-  }, [view, selectedWorkout, stravaConnected]);
-
-  const getHRStatsForExercise = (exerciseIndex: number) => {
-    if (!selectedWorkout || !selectedWorkout.startTime || !stravaActivity || !hrData) return null;
-
-    // const workoutStart = new Date(selectedWorkout.startTime).getTime();
-    const activityStart = new Date(stravaActivity.start_date).getTime();
-    // const offset = (workoutStart - activityStart) / 1000; // offset in seconds
-
-    // Heuristic: Exercise starts when previous exercise ended (or workout start)
-    // Ends when last set completed.
-
-    // Find previous exercise end time
-    let startTime = selectedWorkout.startTime;
-    if (exerciseIndex > 0) {
-      // Loop back to find last completed set
-      for (let i = exerciseIndex - 1; i >= 0; i--) {
-        const sets = selectedWorkout.ovelser[i].sett;
-        const lastCompleted = sets.filter(s => s.completed && s.completedAt).pop();
-        if (lastCompleted && lastCompleted.completedAt) {
-          startTime = lastCompleted.completedAt;
-          break;
-        }
-      }
-    }
-
-    // End time: last completed set of this exercise
-    const currentSets = selectedWorkout.ovelser[exerciseIndex].sett;
-    const lastSet = currentSets.filter(s => s.completed && s.completedAt).pop();
-
-    if (!lastSet || !lastSet.completedAt) return null; // No timestamp for completion
-
-    const startSeconds = (new Date(startTime).getTime() - activityStart) / 1000;
-    const endSeconds = (new Date(lastSet.completedAt).getTime() - activityStart) / 1000;
-
-    // Filter HR Data
-    const slice = hrData.filter(d => d.time >= startSeconds && d.time <= endSeconds);
-    if (slice.length === 0) return null;
-
-    const avg = Math.round(slice.reduce((acc, curr) => acc + curr.heartrate, 0) / slice.length);
-    const max = Math.max(...slice.map(d => d.heartrate));
-
-    return { slice, avg, max };
-  };
-
-  const renderHeartRateGraph = (data: { time: number, heartrate: number }[]) => {
-    if (data.length < 2) return null;
-    // const padding = 2;
-    const width = 100; // viewBox units
-    const height = 40; // viewBox units
-
-    const minHR = Math.min(...data.map(d => d.heartrate));
-    const maxHR = Math.max(...data.map(d => d.heartrate));
-    const hrRange = maxHR - minHR || 1;
-
-    const startTime = data[0].time;
-    const timeRange = data[data.length - 1].time - startTime || 1;
-
-    const points = data.map(d => {
-      const x = ((d.time - startTime) / timeRange) * width;
-      const y = height - ((d.heartrate - minHR) / hrRange) * height; // Invert Y
-      return `${x},${y}`;
-    }).join(' ');
-
-    return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12 overflow-visible">
-        <polyline
-          fill="none"
-          stroke="#FC4C02"
-          strokeWidth="2"
-          points={points}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
+  const handleAddExerciseToWorkout = () => {
+    setReturnView('new_workout');
+    setView('select_exercise');
   };
 
 
-  // --- VIEWS ---
-
+  // --- VIEW ROUTING ---
   if (view === 'home') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 pb-20 text-center relative overflow-hidden font-sans bg-slate-900 text-white">
-
-        {/* Background Image */}
-        <div
-          className="absolute inset-0 bg-cover bg-center z-0"
-          style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&q=80&w=400")' }}
-        />
-
-        {/* Overlay */}
-        <div className="absolute inset-0 bg-indigo-950/40 z-0 backdrop-blur-[2px]" />
-
-        {/* LOGO AREA */}
-        <div className="mb-8 relative z-10 animate-fade-in-up flex flex-col items-center">
-          <div className="w-28 h-28 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-lg border-[6px] border-white/20 mx-auto mb-6 transform hover:scale-105 transition-transform duration-300">
-            <span className="text-white font-black italic text-4xl">BB</span>
-          </div>
-          <h1 className="text-[4rem] leading-none font-black text-white italic tracking-tighter mb-2 drop-shadow-lg">BULKBRO</h1>
-          <p className="text-indigo-200 font-bold uppercase tracking-[0.2em] text-[10px] sm:text-xs">Din Digitale Treningspartner</p>
-
-          <div className="mt-8 px-4 py-3 bg-black/30 rounded-full backdrop-blur-md border border-white/10">
-            <p className="text-white font-black italic uppercase text-xs tracking-wider animate-pulse">{mantra}</p>
-          </div>
-        </div>
-
-        {/* STATS CARDS */}
-        <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-12 relative z-10 animate-fade-in-up delay-100">
-          <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
-            <Icons.Activity className="w-6 h-6 text-white" />
-            <div className="text-left">
-              <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Økter Totalt</p>
-              <p className="text-2xl font-black text-white italic">{workoutHistory.length}</p>
-            </div>
-          </div>
-          <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
-            <Icons.Trophy className="w-6 h-6 text-white" />
-            <div className="text-left">
-              <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">PRs Satt</p>
-              <p className="text-2xl font-black text-white italic">0</p>
-            </div>
-          </div>
-        </div>
-
-        {/* BUTTONS */}
-        <div className="w-full max-w-sm space-y-4 relative z-10 animate-fade-in-up delay-200">
-          <button
-            onClick={() => setView('select_program')}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-6 rounded-full shadow-xl shadow-indigo-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
-          >
-            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
-            Start Ny Økt
-          </button>
-
-          <button
-            onClick={() => setView('create_program')}
-            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
-          >
-            <Icons.ClipboardList className="w-6 h-6" />
-            Programmer
-          </button>
-
-          <button
-            onClick={() => setView('exercise_library')}
-            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-900/50 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider border border-white/10"
-          >
-            <Icons.Dumbbell className="w-6 h-6" />
-            Øvelsesbibliotek
-          </button>
-
-          <button
-            onClick={() => setView('history')}
-            className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-6 rounded-full shadow-sm border border-white/10 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider group backdrop-blur-md"
-          >
-            <Icons.History className="w-6 h-6 text-white group-hover:rotate-[-20deg] transition-transform" />
-            Historikk
-          </button>
-
-          <button
-            onClick={() => setView('settings')}
-            className="w-12 h-12 mx-auto bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-full flex items-center justify-center transition-all active:scale-95 mt-8 backdrop-blur-md border border-white/5"
-          >
-            <Icons.Settings className="w-6 h-6" />
-          </button>
-        </div>
-
-      </div>
-    );
-  }
-
-
-
-  if (view === 'create_program') {
-    return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView('home')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Programmer</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-6 space-y-4 mt-6">
-          <button
-            onClick={startCreateProgram}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-[2rem] shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mb-8"
-          >
-            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
-            Nytt Program
-          </button>
-
-          {programs.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 font-bold italic">
-              Ingen programmer lagret ennå.
-            </div>
-          ) : (
-            programs.map(program => (
-              <div
-                key={program.id}
-                className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 group hover:shadow-md hover:border-indigo-200 transition-all relative overflow-hidden cursor-pointer"
-                onClick={() => openEditProgram(program)}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-black text-slate-900 text-2xl uppercase tracking-tighter italic">{program.navn}</h3>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{program.ovelser.length} Øvelser</p>
-                  </div>
-                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => openEditProgram(program)} className="text-slate-200 hover:text-indigo-500 transition-colors p-2">
-                      <Icons.Pencil className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => deleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors p-2">
-                      <Icons.Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {program.ovelser.slice(0, 3).map((ex, i) => (
-                    <span key={i} className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">{ex}</span>
-                  ))}
-                  {program.ovelser.length > 3 && (
-                    <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">+{program.ovelser.length - 3}</span>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </main>
-      </div>
-    );
-  }
-
-  if (view === 'edit_program_form') {
-    return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView('create_program')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingProgramId ? 'Rediger Program' : 'Nytt Program'}</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
-          <div className="space-y-4">
-            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Program Navn</label>
-            <input
-              type="text"
-              value={newProgramName}
-              onChange={(e) => setNewProgramName(e.target.value)}
-              className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
-              placeholder="F.eks. Helkropp A"
-            />
-          </div>
-
-          <div className="space-y-4">
-            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Øvelser ({newProgramExercises.length})</label>
-            {newProgramExercises.map((exName, idx) => (
-              <div key={idx} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
-                <span className="font-bold text-slate-700 uppercase tracking-tight">{exName}</span>
-                <button
-                  onClick={() => setNewProgramExercises(newProgramExercises.filter((_, i) => i !== idx))}
-                  className="text-slate-300 hover:text-red-400 p-2"
-                >
-                  <Icons.Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            ))}
-
-            <div className="relative group mt-4">
-              <button
-                onClick={() => openExerciseSelector('edit_program_form')}
-                className="w-full p-4 rounded-[2rem] bg-indigo-50 text-indigo-600 font-bold text-sm border-2 border-indigo-100 hover:border-indigo-300 hover:bg-indigo-100 transition-all text-center uppercase tracking-wider flex items-center justify-center gap-2"
-              >
-                <Icons.Search className="w-5 h-5" />
-                + Legg til øvelse
-              </button>
-            </div>
-          </div>
-
-          <button
-            onClick={saveProgram}
-            disabled={!newProgramName || newProgramExercises.length === 0}
-            className="w-full bg-slate-900 disabled:bg-slate-300 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mt-12"
-          >
-            <Icons.CheckCircle2 className="w-6 h-6" />
-            Lagre Program
-          </button>
-        </main>
-      </div>
-    );
-  }
-
-  if (view === 'create_exercise') {
-    return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView(returnView === 'exercise_library' ? 'exercise_library' : 'select_exercise')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingExerciseId ? 'Rediger Øvelse' : 'Ny Øvelse'}</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
-          <div className="space-y-4">
-            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Navn</label>
-            <input
-              type="text"
-              value={newExerciseName}
-              onChange={(e) => setNewExerciseName(e.target.value)}
-              className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
-              placeholder="F.eks. Benkpress"
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-4">
-            <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Beskrivelse (Valgfritt)</label>
-            <input
-              type="text"
-              value={newExerciseDescription}
-              onChange={(e) => setNewExerciseDescription(e.target.value)}
-              className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
-              placeholder="F.eks. Stang / Kabel / Maskin"
-            />
-          </div>
-
-          <button
-            onClick={saveNewExercise}
-            disabled={!newExerciseName}
-            className="w-full bg-slate-900 disabled:bg-slate-300 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mt-12"
-          >
-            <Icons.CheckCircle2 className="w-6 h-6" />
-            {editingExerciseId ? 'Oppdater Øvelse' : 'Lagre Øvelse'}
-          </button>
-        </main>
-      </div>
-    );
-  }
-
-  if (view === 'exercise_library') {
-    const filteredExercises = customExercises.filter(ex => {
-      const matchesSearch = ex.name.toLowerCase().includes(exerciseSearch.toLowerCase());
-      return matchesSearch;
-    });
-
-    return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView('home')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Øvelsesbibliotek</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-4 space-y-6 mt-2">
-          {/* Action: Create New */}
-          <button
-            onClick={() => {
-              setNewExerciseName('');
-              setNewExerciseDescription('');
-              setEditingExerciseId(null);
-              setReturnView('exercise_library'); // Set return view for when exercise is saved
-              setView('create_exercise');
-            }}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-[2rem] shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider mb-8"
-          >
-            <Icons.Plus className="w-6 h-6 stroke-[3px]" />
-            Ny Øvelse
-          </button>
-
-          {/* Search */}
-          <div className="relative">
-            <Icons.Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              value={exerciseSearch}
-              onChange={(e) => setExerciseSearch(e.target.value)}
-              placeholder="Søk etter øvelse..."
-              className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] border border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold outline-none"
-            />
-          </div>
-
-          {/* Exercise List */}
-          {customExercises.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 font-bold italic">
-              Ingen øvelser funnet. Lag en ny!
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {filteredExercises.map(ex => (
-                <div
-                  key={ex.id}
-                  className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all text-left group flex justify-between items-center"
-                >
-                  <div>
-                    <span className="block font-black text-slate-900 uppercase tracking-tighter text-lg">{ex.name}</span>
-                    {ex.description && (
-                      <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">{ex.description}</span>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => startEditExercise(ex)} className="text-slate-300 hover:text-indigo-500 transition-colors p-2">
-                      <Icons.Pencil className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => deleteExercise(ex.id)} className="text-slate-300 hover:text-red-400 transition-colors p-2">
-                      <Icons.Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </main>
-      </div>
-    );
-  }
-
-  if (view === 'select_exercise') {
-    const filteredExercises = customExercises.filter(ex => {
-      const matchesSearch = ex.name.toLowerCase().includes(exerciseSearch.toLowerCase());
-      return matchesSearch;
-    });
-
-    return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView(returnView)}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Velg Øvelse</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-4 space-y-6 mt-2">
-          {/* Action: Create New */}
-          <button
-            onClick={() => {
-              setNewExerciseName('');
-              setNewExerciseDescription('');
-              setView('create_exercise');
-            }}
-            className="w-full bg-white hover:bg-indigo-50 text-indigo-600 font-bold py-4 rounded-[2rem] shadow-sm border-2 border-indigo-100 hover:border-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-base uppercase tracking-wider mb-2"
-          >
-            <Icons.Plus className="w-5 h-5 stroke-[3px]" />
-            Opprett Ny Øvelse
-          </button>
-
-          {/* Search */}
-          <div className="relative">
-            <Icons.Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              value={exerciseSearch}
-              onChange={(e) => setExerciseSearch(e.target.value)}
-              placeholder="Søk etter øvelse..."
-              className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] border border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold outline-none"
-              autoFocus
-            />
-          </div>
-
-          {/* Exercise List */}
-          {customExercises.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 font-bold italic">
-              Ingen øvelser funnet. Lag en ny!
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {filteredExercises.map(ex => (
-                <button
-                  key={ex.id}
-                  onClick={() => handleSelectExercise(ex)}
-                  className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all text-left group"
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <span className="block font-black text-slate-900 uppercase tracking-tighter text-lg">{ex.name}</span>
-                      {ex.description && (
-                        <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">{ex.description}</span>
-                      )}
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
-                      <Icons.Plus className="w-5 h-5 text-slate-300 group-hover:text-indigo-500" />
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-        </main>
-      </div>
-    );
-  }
-
-  if (view === 'select_program') {
-    return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView('home')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Velg Økt</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-6 space-y-4 mt-6">
-          {/* Empty Workout Option */}
-          <button
-            onClick={() => startNewWorkout()}
-            className="w-full bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md hover:border-indigo-200 transition-all group text-left"
-          >
-            <div className="w-16 h-16 bg-slate-100 rounded-3xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
-              <Icons.Plus className="w-8 h-8 text-slate-300 group-hover:text-indigo-500" />
-            </div>
-            <div>
-              <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter italic">Tom Økt</h3>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Start uten program</p>
-            </div>
-          </button>
-
-          <div className="h-px bg-slate-100 my-6"></div>
-
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4 mb-2">Dine Programmer</p>
-
-          {programs.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-slate-400 font-bold italic mb-4">Ingen programmer funnet</p>
-              <button onClick={() => setView('create_program')} className="text-indigo-500 font-bold underline uppercase tracking-wider text-sm">Lag ditt første program</button>
-            </div>
-          ) : (
-            programs.map(program => (
-              <div key={program.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 group hover:shadow-md hover:border-indigo-200 transition-all relative overflow-hidden">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-black text-slate-900 text-2xl uppercase tracking-tighter italic">{program.navn}</h3>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{program.ovelser.length} Øvelser</p>
-                  </div>
-                  <button onClick={() => deleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors">
-                    <Icons.Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {program.ovelser.slice(0, 3).map((ex, i) => (
-                    <span key={i} className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">{ex}</span>
-                  ))}
-                  {program.ovelser.length > 3 && (
-                    <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">+{program.ovelser.length - 3}</span>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => startNewWorkout(program)}
-                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl uppercase tracking-widest text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"
-                >
-                  Start Økt <Icons.Dumbbell className="w-4 h-4" />
-                </button>
-              </div>
-            ))
-          )}
-        </main>
-      </div>
-    );
+    return <HomeView onNavigate={handleNavigate} workoutHistory={workoutHistory} />;
   }
 
   if (view === 'new_workout' && activeWorkout) {
     return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white/90 backdrop-blur-xl px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView('home')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <input
-              type="text"
-              value={activeWorkout.navn}
-              onChange={(e) => setActiveWorkout({ ...activeWorkout, navn: e.target.value })}
-              className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 text-slate-800 uppercase tracking-tighter italic placeholder-slate-300 min-w-0 p-0"
-              placeholder="Navn på økt"
-            />
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{activeWorkout.dato}</p>
-          </div>
-          <button
-            onClick={finishWorkout}
-            className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200 transition-all active:scale-95"
-          >
-            <Icons.CheckCircle2 className="w-5 h-5" />
-            <span className="hidden sm:inline">Ferdig</span>
-          </button>
-        </header>
-
-        <main className="max-w-xl mx-auto p-4 space-y-8 mt-6">
-          {activeWorkout.ovelser.map((ex, exIdx) => (
-            <div key={ex.id} className="bg-white rounded-[2rem] p-6 shadow-xl shadow-slate-100/50 border border-slate-100/50">
-              <div className="flex justify-between items-start mb-8 pl-4 border-l-4 border-indigo-600">
-                <h3 className="font-black text-2xl text-slate-800 uppercase tracking-tighter italic leading-none">{ex.navn}</h3>
-                <button
-                  onClick={() => removeExercise(ex.id)}
-                  className="text-slate-300 hover:text-red-400 transition-colors p-2 -mr-2 -mt-2"
-                >
-                  <Icons.Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="grid grid-cols-12 gap-3 px-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">
-                  <div className="col-span-2 flex justify-center">#</div>
-                  <div className="col-span-4 text-center">KG</div>
-                  <div className="col-span-4 text-center">REPS</div>
-                  <div className="col-span-2 text-center">OK</div>
-                </div>
-
-                {ex.sett.map((set, sIdx) => (
-                  <div
-                    key={set.id}
-                    className={`grid grid-cols-12 gap-3 items-center transition-all duration-300 ${set.completed ? 'opacity-50 grayscale-[0.5]' : ''}`}
-                  >
-                    <div className="col-span-2 flex justify-center">
-                      <div className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-400 font-bold text-sm">
-                        {sIdx + 1}
-                      </div>
-                    </div>
-
-                    <div className="col-span-4 relative">
-                      <input
-                        type="number"
-                        value={set.kg}
-                        onChange={(e) => updateSet(exIdx, sIdx, 'kg', e.target.value)}
-                        className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all placeholder-transparent"
-                      />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">KG</span>
-                    </div>
-
-                    <div className="col-span-4 relative">
-                      <input
-                        type="number"
-                        value={set.reps}
-                        onChange={(e) => updateSet(exIdx, sIdx, 'reps', e.target.value)}
-                        className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all"
-                      />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">REPS</span>
-                    </div>
-
-                    <div className="col-span-2 flex justify-center">
-                      <button
-                        onClick={() => toggleSetComplete(exIdx, sIdx)}
-                        className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${set.completed
-                          ? 'bg-green-500 text-white shadow-lg shadow-green-200'
-                          : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
-                          }`}
-                      >
-                        <Icons.Check className="w-6 h-6" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => addSetToExercise(exIdx)}
-                className="mt-8 w-full py-4 border-2 border-dashed border-slate-200 rounded-[1.5rem] text-slate-400 font-bold text-xs hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50 transition-all uppercase tracking-widest flex items-center justify-center gap-2"
-              >
-                <Icons.Plus className="w-4 h-4" /> Legg til sett
-              </button>
-            </div>
-          ))}
-
-          <div className="pt-8 pb-12">
-            <div className="relative group">
-              <button
-                onClick={() => openExerciseSelector('new_workout')}
-                className="w-full p-5 rounded-[2.5rem] bg-indigo-600 text-white font-bold text-lg shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all text-center uppercase tracking-wider flex items-center justify-center gap-2"
-              >
-                <Icons.Plus className="w-6 h-6" />
-                + Legg til ny øvelse
-              </button>
-            </div>
-          </div>
-        </main>
-      </div>
+      <ActiveWorkoutView
+        workout={activeWorkout}
+        onUpdateWorkoutName={updateWorkoutName}
+        onFinish={handleFinishWorkout}
+        onNavigate={handleNavigate}
+        onRemoveExercise={removeExercise}
+        onUpdateSet={updateSet}
+        onToggleSet={toggleSetComplete}
+        onAddSet={addSetToExercise}
+        onAddExercise={handleAddExerciseToWorkout}
+      />
     );
   }
 
-
-
   if (view === 'history') {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-10">
-          <button
-            onClick={() => setView('home')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Historikk</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-4 space-y-4 mt-4">
-          {workoutHistory.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-32 opacity-50">
-              <div className="bg-slate-200 p-8 rounded-full mb-6">
-                <Icons.History className="w-16 h-16 text-slate-400" />
-              </div>
-              <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Ingen økter lagret ennå</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {workoutHistory.map(w => (
-                <button
-                  key={w.id}
-                  onClick={() => openWorkoutDetails(w)}
-                  className="w-full bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center group hover:shadow-md hover:border-indigo-100 transition-all text-left"
-                >
-                  <div>
-                    <h3 className="font-black text-slate-800 text-xl uppercase tracking-tighter italic mb-1">{w.navn}</h3>
-                    <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest">
-                      <span>{w.dato}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <span className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-indigo-100">
-                      {w.ovelser?.length || 0} Øvelser
-                    </span>
-                    <span className="text-slate-300 text-[10px] font-bold">
-                      {w.ovelser?.reduce((acc, curr) => acc + (curr.sett?.length || 0), 0) || 0} SETT
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </main>
-      </div>
+      <HistoryView
+        onNavigate={handleNavigate}
+        workoutHistory={workoutHistory}
+        onSelectWorkout={handleSelectWorkoutDetails}
+      />
     );
   }
 
   if (view === 'workout_details' && selectedWorkout) {
     return (
-      <div className="min-h-screen bg-slate-50 pb-40">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
-          <button
-            onClick={() => setView('history')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Øktdetaljer</h1>
-        </header>
+      <WorkoutDetailsView
+        workout={selectedWorkout}
+        onNavigate={handleNavigate}
+        onEdit={handleEditWorkout}
+        onDelete={(id) => {
+          deleteWorkout(id);
+          setView('history');
+        }}
+      />
+    );
+  }
 
-        <main className="max-w-xl mx-auto p-6 space-y-6 mt-2">
-          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 text-center">
-            <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic mb-2">{selectedWorkout.navn}</h2>
-            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">{selectedWorkout.dato}</p>
+  if (view === 'create_program') { // Actually ProgramsView
+    return (
+      <ProgramsView
+        programs={programs}
+        onNavigate={handleNavigate}
+        onCreateProgram={handleCreateProgram}
+        onEditProgram={handleEditProgram}
+        onDeleteProgram={deleteProgram}
+      />
+    );
+  }
 
-            {stravaConnected && (
-              <div className="mt-4 flex flex-col items-center">
-                {isFetchingStrava ? (
-                  <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-wider animate-pulse">
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
-                    Ser etter Strava-økt...
-                  </div>
-                ) : stravaActivity ? (
-                  <a
-                    href={`https://www.strava.com/activities/${stravaActivity.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 text-[#FC4C02] font-black text-xs uppercase tracking-wider bg-[#FC4C02]/10 px-3 py-1 rounded-full hover:bg-[#FC4C02]/20 transition-colors"
-                  >
-                    <Icons.Activity className="w-3 h-3" />
-                    Synkronisert med Strava
-                  </a>
-                ) : (
-                  <div className="flex items-center gap-2 text-slate-300 font-bold text-xs uppercase tracking-wider">
-                    <Icons.Activity className="w-3 h-3" />
-                    Ingen Strava-økt funnet
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+  if (view === 'edit_program_form') {
+    return (
+      <ProgramFormView
+        onNavigate={handleNavigate}
+        onSave={handleSaveProgram}
+        editingProgram={editingProgram}
+        onAddExercise={handleAddExerciseToDraftProgram}
+        newProgramExercises={draftProgramExercises}
+        draftName={draftProgramName}
+        setDraftName={setDraftProgramName}
+        setDraftExercises={setDraftProgramExercises}
+      />
+    );
+  }
 
-          <div className="space-y-4">
-            {selectedWorkout.ovelser.map((ex, i) => (
-              <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100/50">
-                <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter italic mb-4 pl-4 border-l-4 border-indigo-500">{ex.navn}</h3>
-                <div className="space-y-2">
-                  {ex.sett.map((set, sIdx) => (
-                    <div key={sIdx} className="flex justify-between items-center px-4 py-2 bg-slate-50 rounded-xl">
-                      <span className="font-bold text-slate-400 text-xs uppercase tracking-wider">Sett {sIdx + 1}</span>
-                      <div className="flex gap-4">
-                        <span className="font-black text-slate-700">{set.kg} <span className="text-[10px] text-slate-400 font-bold">KG</span></span>
-                        <span className="font-black text-slate-700">{set.reps} <span className="text-[10px] text-slate-400 font-bold">REPS</span></span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+  if (view === 'select_program') {
+    return (
+      <ProgramSelectView
+        programs={programs}
+        onNavigate={handleNavigate}
+        onStartEmpty={() => handleStartNewWorkout()}
+        onStartProgram={handleStartNewWorkout}
+        onDeleteProgram={deleteProgram}
+      />
+    );
+  }
 
-                {/* HR GRAPH SECTION */}
-                {(() => {
-                  const stats = getHRStatsForExercise(i);
-                  if (stats) {
-                    return (
-                      <div className="mt-4 pt-4 border-t border-slate-100">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-6 h-6 bg-[#FC4C02]/10 rounded-lg flex items-center justify-center text-[#FC4C02]">
-                            <Icons.Activity className="w-4 h-4" />
-                          </div>
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Puls</span>
-                          <span className="text-xs font-black text-slate-700 ml-auto">{stats.avg} AVG / {stats.max} MAX</span>
-                        </div>
-                        {renderHeartRateGraph(stats.slice)}
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+  if (view === 'exercise_library') {
+    return (
+      <ExerciseLibraryView
+        onNavigate={handleNavigate}
+        customExercises={customExercises}
+        onDeleteExercise={handleDeleteExercise}
+        onEditExercise={handleEditExercise}
+        onCreateExercise={handleCreateExercise}
+      />
+    );
+  }
 
-              </div>
-            ))}
-          </div>
+  if (view === 'create_exercise') {
+    return (
+      <ExerciseFormView
+        onNavigate={handleNavigate}
+        onSave={handleSaveExercise}
+        editingExercise={editingExercise}
+        returnView={returnView}
+      />
+    );
+  }
 
-          <div className="flex gap-4 mt-8">
-            <button
-              onClick={() => editWorkout(selectedWorkout)}
-              className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider"
-            >
-              <Icons.Pencil className="w-5 h-5" />
-              Rediger Output
-            </button>
-
-            <button
-              onClick={() => deleteWorkout(selectedWorkout.id)}
-              className="w-20 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-full transition-all active:scale-95 flex items-center justify-center border border-red-100"
-            >
-              <Icons.Trash2 className="w-6 h-6" />
-            </button>
-          </div>
-        </main>
-      </div>
+  if (view === 'select_exercise') {
+    return (
+      <ExerciseSelectView
+        onNavigate={handleNavigate}
+        onSelect={handleSelectExercise}
+        customExercises={customExercises}
+        onCreateExercise={handleCreateExercise}
+        returnView={returnView}
+      />
     );
   }
 
   if (view === 'settings') {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-10">
-          <button
-            onClick={() => setView('home')}
-            className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
-          >
-            <Icons.ChevronLeft className="w-8 h-8" />
-          </button>
-          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Innstillinger</h1>
-        </header>
-
-        <main className="max-w-xl mx-auto p-6 space-y-6 mt-4">
-
-          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic mb-6 flex items-center gap-3">
-              <span className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center">
-                <Icons.Activity className="w-6 h-6" />
-              </span>
-              Integrasjoner
-            </h2>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-3xl border border-slate-100">
-                <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 ${stravaConnected ? 'bg-[#FC4C02]' : 'bg-slate-300'} text-white rounded-2xl flex items-center justify-center font-black italic text-xs tracking-tighter`}>
-                    STRAVA
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 uppercase tracking-tight">Strava</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      {stravaConnected ? 'Konto tilkoblet' : 'Koble til konto'}
-                    </p>
-                  </div>
-                </div>
-                {stravaConnected ? (
-                  <button
-                    onClick={() => {
-                      disconnectStrava();
-                      setStravaConnected(false);
-                    }}
-                    className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-600 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors"
-                  >
-                    Koble fra
-                  </button>
-                ) : (
-                  <a
-                    href={getStravaAuthUrl()}
-                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors"
-                  >
-                    Koble til
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center py-8">
-            <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em]">BulkBro v1.0.1</p>
-          </div>
-
-        </main>
-      </div>
-    );
+    return <SettingsView onNavigate={handleNavigate} />;
   }
 
-  return null;
+  // Fallback (e.g. if activeWorkout is null but view is new_workout)
+  return <HomeView onNavigate={handleNavigate} workoutHistory={workoutHistory} />;
 }
