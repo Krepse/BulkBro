@@ -65,7 +65,7 @@ export const supabaseService = {
         // Let's Insert a new Workout for every Finish, or Upsert if we track UUID.
         // The current app generates `Date.now()` IDs. We should treat these as NEW rows in DB.
 
-        let workoutId = typeof workout.id === 'string' && workout.id.length > 20 ? workout.id : undefined;
+        let workoutId = typeof workout.id === 'string' && (workout.id as string).length > 20 ? workout.id : undefined;
 
         // Insert Workout
         const { data: wData, error: wError } = await supabase
@@ -148,7 +148,7 @@ export const supabaseService = {
         if (error) return { programs: localPrograms };
 
         const cloudMap = new Map<string, any>();
-        data?.forEach(row => cloudMap.set(String(row.data.id), row));
+        data?.forEach((row: any) => cloudMap.set(String(row.data.id), row));
 
         // Push Local
         const upserts = localPrograms.map(p => {
@@ -198,7 +198,7 @@ export const supabaseService = {
         if (error) return { exercises: localExercises };
 
         const cloudMap = new Map<string, any>();
-        data?.forEach(row => cloudMap.set(String(row.data.id), row));
+        data?.forEach((row: any) => cloudMap.set(String(row.data.id), row));
 
         // Push Local (Only push ones that originated from THIS user or represent new ones?)
         // If we want a shared library, users should push their new definitions.

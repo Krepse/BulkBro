@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Dumbbell, Calendar, Settings, LogOut } from 'lucide-react';
+import { useState } from 'react';
+import { Dumbbell, Calendar, Settings } from 'lucide-react';
 import { HomeView } from './components/views/HomeView';
 import { ActiveWorkoutView } from './components/views/ActiveWorkoutView';
 import { HistoryView } from './components/views/HistoryView';
@@ -14,7 +14,6 @@ import { ExerciseSelectView } from './components/views/ExerciseSelectView';
 import { WorkoutDetailsView } from './components/views/WorkoutDetailsView';
 
 import { useWorkout } from './hooks/useWorkout';
-import { supabase } from './lib/supabase';
 import type { Exercise, Okt, Program } from './types';
 
 // Simple types for legacy function calls/params
@@ -25,7 +24,6 @@ export default function App() {
     activeWorkout,
     startWorkout,
     finishWorkout,
-    cancelWorkout,
     updateSet,
     addExercise,
     removeExercise,
@@ -41,7 +39,6 @@ export default function App() {
     addSetToExercise,
     updateWorkoutName,
     editWorkout, // Ensure exposed
-    startNewWorkout, // Ensure mapped
     deleteWorkout // Exposed from hook
   } = useWorkout();
 
@@ -129,11 +126,7 @@ export default function App() {
 
       case 'settings':
         return (
-          <SettingsView
-            customExercises={customExercises}
-            onSaveExercise={saveExercise}
-            onDeleteExercise={deleteExercise}
-          />
+          <SettingsView />
         );
 
       case 'select_program':
@@ -201,7 +194,7 @@ export default function App() {
           <ExerciseFormView
             onNavigate={handleNavigate}
             editingExercise={editingExercise}
-            returnView={returnView}
+            returnView={returnView === 'exercise_library' ? 'exercise_library' : 'select_exercise'}
             onSave={(name, type) => {
               const newEx: Exercise = {
                 id: editingExercise?.id || crypto.randomUUID(),
@@ -220,7 +213,7 @@ export default function App() {
           <ExerciseSelectView
             onNavigate={handleNavigate}
             customExercises={customExercises}
-            onCreateExercise={() => { setEditingExercise(null); setReturnView('select_exercise'); setView('create_exercise'); }}
+            onCreateExercise={() => { setEditingExercise(null); setView('create_exercise'); }}
             returnView={returnView}
             onSelect={(ex) => {
               if (returnView === 'edit_program_form') {
