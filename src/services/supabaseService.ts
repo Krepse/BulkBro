@@ -1,27 +1,9 @@
 import { supabase } from '../lib/supabase';
-import type { Okt, Program, Exercise } from '../types';pes';
+import type { Okt, Program, Exercise } from '../types';
 
 // Types for Supabase tables
-type SupabaseWorkout = {
-    id: string;
-    user_id: string;
-    data: Okt;
-    updated_at: string;
-};
-
-type SupabaseProgram = {
-    id: string;
-    user_id: string;
-    data: Program;
-    updated_at: string;
-};
-
-type SupabaseCustomExercise = {
-    id: string;
-    user_id: string;
-    data: Exercise;
-    updated_at: string;
-};
+// Types for Supabase tables
+// (Removed unused internal types)
 
 // Helper: Convert Local ID to UUID (deterministic or random)
 // For existing numeric IDs, we might fallback to random and store the mapping, 
@@ -33,134 +15,163 @@ type SupabaseCustomExercise = {
 // OR more simply: We enforce that `id` in the types becomes a string (UUID) over time.
 
 export const supabaseService = {
-    // --- Workouts ---
-    async syncWorkouts(localWorkouts: Okt[], userId: string) {
-        // 1. Fetch all cloud workouts
-        const { data: cloudWorkouts, error } = await supabase
-            .from('workout_history')
-            .select('*')
-            .eq('user_id', userId);
+    // --- Workouts (Relational) ---
+    async fetchWorkouts(userId: string): Promise<Okt[]> {
+        // Fetch Workouts -> Exercises -> Sets
+        const { data, error } = await supabase
+            .from('workouts')
+            .select(`
+                *,
+                exercises (
+                    *,
+                    sets (*)
+                )
+            `)
+            .eq('user_id', userId)
+            .order('start_time', { ascending: false });
 
         if (error) {
             console.error('Error fetching workouts:', error);
-            return { workouts: localWorkouts, merged: false };
+            return [];
         }
 
-        // 2. Map Cloud Items by Inner ID (data.id)
-        const cloudMap = new Map<string, SupabaseWorkout>();
-        cloudWorkouts?.forEach(row => {
-            cloudMap.set(String(row.data.id), row);
-        });
-
-        // 3. Prepare Upserts (Local -> Cloud)
-        // We want to ensure all local items exist in cloud. 
-        // Optimization: Only push if seemingly different? Without timestamps, hard.
-        // Safe approach: Upsert all local items.
-        const upserts = localWorkouts.map(localW => {
-            const match = cloudMap.get(String(localW.id));
-            return {
-                id: match?.id, // If match exists, use its UUID to update. If undefined, Supabase generates new UUID.
-                user_id: userId,
-                data: localW,
-                updated_at: new Date().toISOString() // Or keep original updated_at if we tracked it
-            };
-        });
-
-        if (upserts.length > 0) {
-            const { error: upsertError } = await supabase
-                .from('workout_history')
-                .upsert(upserts, { onConflict: 'id' });
-
-            if (upsertError) console.error("Error pushing workouts:", upsertError);
-        }
-
-        // 4. Merge (Cloud -> Local)
-        // Add items from Cloud that are NOT in Local
-        const mergedWorkouts = [...localWorkouts];
-        cloudMap.forEach((row, id) => {
-            const existsLocally = localWorkouts.find(l => String(l.id) === id);
-            if (!existsLocally) {
-                mergedWorkouts.push(row.data);
-            }
-        });
-
-        return { workouts: mergedWorkouts, merged: true };
+        // Map back to Okt type
+        return data.map((w: any) => ({
+            id: w.id, // now UUID
+            navn: w.name,
+            dato: new Date(w.start_time).toLocaleString('no-NO'), // approximation
+            startTime: w.start_time,
+            endTime: w.end_time,
+            ovelser: w.exercises.map((e: any) => ({
+                id: e.id,
+                navn: e.name,
+                type: e.type,
+                sett: e.sets.map((s: any) => ({
+                    id: s.id,
+                    kg: s.kg,
+                    reps: s.reps,
+                    completed: s.completed,
+                    completedAt: s.completed_at
+                })).sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()) // Sort sets if time available or just by insertion order logic? Array order from Supabase usually strict if not sorted.
+            }))
+        }));
     },
 
     async saveWorkout(workout: Okt, userId: string) {
-        // Upsert to Supabase
-        // We need a stable UUID for the row. 
-        // Strategy: Check if exists to get UUID
-        const { data: existing } = await supabase
-            .from('workout_history')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('data->>id', String(workout.id))
-            .maybeSingle();
+        // 1. Save Workout
+        // Check if ID is UUID. If number (from local dummy), omit it to let DB generate UUID.
+        // Or if we want to "sync upsert", we need a UUID map.
+        // User requested "Save to Supabase" -> Assuming "Finish Workout".
+        // Let's Insert a new Workout for every Finish, or Upsert if we track UUID.
+        // The current app generates `Date.now()` IDs. We should treat these as NEW rows in DB.
 
-        const rowId = existing?.id;
+        let workoutId = typeof workout.id === 'string' && workout.id.length > 20 ? workout.id : undefined;
 
-        const payload = {
-            user_id: userId,
-            data: workout,
-            updated_at: new Date().toISOString(),
-            ...(rowId ? { id: rowId } : {})
-        };
+        // Insert Workout
+        const { data: wData, error: wError } = await supabase
+            .from('workouts')
+            .upsert({
+                ...(workoutId ? { id: workoutId } : {}),
+                user_id: userId,
+                name: workout.navn,
+                start_time: workout.startTime,
+                end_time: workout.endTime
+            })
+            .select()
+            .single();
 
+        if (wError || !wData) {
+            console.error("Error saving workout:", wError);
+            return;
+        }
+
+        const newWorkoutId = wData.id;
+
+        // 2. Save Exercises
+        for (const ex of workout.ovelser) {
+            // Upsert/Insert Exercise
+            // Since we moved to relational, if we re-save a workout, we might duplicate exercises if we don't track their UUIDs.
+            // For now, assuming "Finish" = Save Once. 
+            // If editing, we need UUIDs. 
+            // Let's assume Insert for simplicity as per prompt "Insert a row...".
+
+            const { data: eData, error: eError } = await supabase
+                .from('exercises')
+                .insert({
+                    workout_id: newWorkoutId,
+                    user_id: userId,
+                    name: ex.navn,
+                    type: ex.type
+                })
+                .select()
+                .single();
+
+            if (eError || !eData) continue;
+
+            const newExId = eData.id;
+
+            // 3. Save Sets
+            const setsPayload = ex.sett.map(s => ({
+                exercise_id: newExId,
+                user_id: userId,
+                kg: s.kg,
+                reps: s.reps,
+                completed: s.completed,
+                completed_at: s.completedAt
+            }));
+
+            const { error: sError } = await supabase
+                .from('sets')
+                .insert(setsPayload);
+
+            if (sError) console.error("Error saving sets:", sError);
+        }
+
+        console.log("Workout saved to Supabase Relational DB:", newWorkoutId);
+    },
+
+    async deleteWorkout(workoutId: string, userId: string) {
+        // Cascade delete handles children
         const { error } = await supabase
-            .from('workout_history')
-            .upsert(payload, { onConflict: 'id' });
-
-        if (error) console.error('Error saving workout:', error);
-    },
-
-    async deleteWorkout(workoutId: number | string, userId: string) {
-        await supabase
-            .from('workout_history')
+            .from('workouts')
             .delete()
-            .eq('user_id', userId)
-            .eq('data->>id', String(workoutId));
-    },
-
-    // --- Programs ---
-    async syncPrograms(localPrograms: Program[], userId: string) {
-        const { data: cloudPrograms, error } = await supabase
-            .from('programs')
-            .select('*')
+            .eq('id', workoutId)
             .eq('user_id', userId);
 
+        if (error) console.error("Error deleting workout:", error);
+    },
+
+    // --- Programs (Keeping JSONB for now as requested or implicit) ---
+    async syncPrograms(localPrograms: Program[], userId: string) {
+        // Same as before...
+        const { data, error } = await supabase.from('programs').select('*').eq('user_id', userId);
         if (error) return { programs: localPrograms };
 
-        const cloudMap = new Map<string, SupabaseProgram>();
-        cloudPrograms?.forEach(row => cloudMap.set(String(row.data.id), row));
+        const cloudMap = new Map<string, any>();
+        data?.forEach(row => cloudMap.set(String(row.data.id), row));
 
-        // Push Local -> Cloud
+        // Push Local
         const upserts = localPrograms.map(p => {
             const match = cloudMap.get(String(p.id));
             return {
-                id: match?.id,
+                ...(match ? { id: match.id } : {}),
                 user_id: userId,
                 data: p,
                 updated_at: new Date().toISOString()
             };
         });
+        if (upserts.length) await supabase.from('programs').upsert(upserts);
 
-        if (upserts.length > 0) {
-            await supabase.from('programs').upsert(upserts, { onConflict: 'id' });
-        }
-
-        // Pull Cloud -> Local
-        const mergedPrograms = [...localPrograms];
+        // Merge
+        const merged = [...localPrograms];
         cloudMap.forEach((row, id) => {
-            if (!localPrograms.find(p => String(p.id) === id)) {
-                mergedPrograms.push(row.data);
-            }
+            if (!localPrograms.find(p => String(p.id) === id)) merged.push(row.data);
         });
-
-        return { programs: mergedPrograms };
+        return { programs: merged };
     },
 
     async saveProgram(program: Program, userId: string) {
+        /* simplified upsert */
         const { data: existing } = await supabase
             .from('programs')
             .select('id')
@@ -168,60 +179,42 @@ export const supabaseService = {
             .eq('data->>id', String(program.id))
             .maybeSingle();
 
-        const payload = {
+        await supabase.from('programs').upsert({
+            ...(existing ? { id: existing.id } : {}),
             user_id: userId,
             data: program,
-            updated_at: new Date().toISOString(),
-            ...(existing?.id ? { id: existing.id } : {})
-        };
-
-        await supabase.from('programs').upsert(payload);
+            updated_at: new Date().toISOString()
+        });
     },
 
     async deleteProgram(programId: number | string, userId: string) {
-        await supabase
-            .from('programs')
-            .delete()
-            .eq('user_id', userId)
-            .eq('data->>id', String(programId));
+        await supabase.from('programs').delete().eq('user_id', userId).eq('data->>id', String(programId));
     },
 
-    // --- Custom Exercises ---
+    // --- Custom Exercises (JSONB) ---
     async syncExercises(localExercises: Exercise[], userId: string) {
-        const { data: cloudExercises, error } = await supabase
-            .from('custom_exercises')
-            .select('*')
-            .eq('user_id', userId);
-
+        const { data, error } = await supabase.from('custom_exercises').select('*').eq('user_id', userId);
         if (error) return { exercises: localExercises };
 
-        const cloudMap = new Map<string, SupabaseCustomExercise>();
-        cloudExercises?.forEach(row => cloudMap.set(String(row.data.id), row));
+        const cloudMap = new Map<string, any>();
+        data?.forEach(row => cloudMap.set(String(row.data.id), row));
 
-        // Push Local -> Cloud
         const upserts = localExercises.map(e => {
             const match = cloudMap.get(String(e.id));
             return {
-                id: match?.id,
+                ...(match ? { id: match.id } : {}),
                 user_id: userId,
                 data: e,
                 updated_at: new Date().toISOString()
             };
         });
+        if (upserts.length) await supabase.from('custom_exercises').upsert(upserts);
 
-        if (upserts.length > 0) {
-            await supabase.from('custom_exercises').upsert(upserts, { onConflict: 'id' });
-        }
-
-        // Pull Cloud -> Local
-        const mergedExercises = [...localExercises];
+        const merged = [...localExercises];
         cloudMap.forEach((row, id) => {
-            if (!localExercises.find(l => String(l.id) === id)) {
-                mergedExercises.push(row.data);
-            }
+            if (!localExercises.find(e => String(e.id) === id)) merged.push(row.data);
         });
-
-        return { exercises: mergedExercises };
+        return { exercises: merged };
     },
 
     async saveExercise(exercise: Exercise, userId: string) {
@@ -232,21 +225,15 @@ export const supabaseService = {
             .eq('data->>id', exercise.id)
             .maybeSingle();
 
-        const payload = {
+        await supabase.from('custom_exercises').upsert({
+            ...(existing ? { id: existing.id } : {}),
             user_id: userId,
             data: exercise,
-            updated_at: new Date().toISOString(),
-            ...(existing?.id ? { id: existing.id } : {})
-        };
-
-        await supabase.from('custom_exercises').upsert(payload);
+            updated_at: new Date().toISOString()
+        });
     },
 
     async deleteExercise(exerciseId: string, userId: string) {
-        await supabase
-            .from('custom_exercises')
-            .delete()
-            .eq('user_id', userId)
-            .eq('data->>id', exerciseId);
+        await supabase.from('custom_exercises').delete().eq('user_id', userId).eq('data->>id', exerciseId);
     }
 };

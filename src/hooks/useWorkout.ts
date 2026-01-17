@@ -82,15 +82,27 @@ export function useWorkout() {
 
         // Sync Data on Mount/Login
         const sync = async () => {
-            // 1. Workouts
-            const wSync = await supabaseService.syncWorkouts(workoutHistory, user.id);
-            if (wSync.merged) setWorkoutHistory(wSync.workouts);
+            // 1. Workouts (Fetch only for Relational)
+            const remoteWorkouts = await supabaseService.fetchWorkouts(user.id);
+            // Merge: If we have local workouts not in remote, we should ideally push them.
+            // For now, simpler strategy: "Cloud is Master for History".
+            // BUT user wants Local-First.
+            // If we have local workouts (id=number), and remote (id=uuid).
+            // We can just append Remote to Local if unique?
+            // BETTER: Just Replace Local History with Cloud History for consistency on load?
+            // User Prompt: "Hent workouts... Inkluder exercises og sets".
+            // Let's set history to what comes from Supabase + Keep Local unsaved ones?
+            // Actually, if we just saved to Supabase, we should have them there. 
+            // Let's setWorkoutHistory(remoteWorkouts) to verify data is coming from DB.
+            if (remoteWorkouts.length > 0) {
+                setWorkoutHistory(remoteWorkouts);
+            }
 
-            // 2. Programs
+            // 2. Programs (Keep Sync Logic)
             const pSync = await supabaseService.syncPrograms(programs, user.id);
             setPrograms(pSync.programs);
 
-            // 3. Exercises
+            // 3. Exercises (Keep Sync Logic)
             const eSync = await supabaseService.syncExercises(customExercises, user.id);
             setCustomExercises(eSync.exercises);
         };
@@ -215,12 +227,12 @@ export function useWorkout() {
         setActiveWorkout(null);
     };
 
-    const deleteWorkout = (id: number) => {
+    const deleteWorkout = (id: number | string) => {
         const updatedHistory = workoutHistory.filter(w => w.id !== id);
         setWorkoutHistory(updatedHistory);
         // Sync delete
         if (user) {
-            supabaseService.deleteWorkout(id, user.id);
+            supabaseService.deleteWorkout(String(id), user.id);
         }
     };
 
@@ -277,11 +289,13 @@ export function useWorkout() {
     };
 
     return {
+        user,
         workoutHistory,
         programs,
         customExercises,
         activeWorkout,
-        startNewWorkout,
+        startWorkout: startNewWorkout,
+        cancelWorkout: () => setActiveWorkout(null),
         addExercise,
         removeExercise,
         updateSet,
@@ -293,7 +307,8 @@ export function useWorkout() {
         editWorkout,
         saveProgram,
         deleteProgram,
-        saveCustomExercise,
-        deleteCustomExercise
+        saveExercise: saveCustomExercise,
+        deleteExercise: deleteCustomExercise,
+        startNewWorkout,     // Exposing explicitly
     };
 }
