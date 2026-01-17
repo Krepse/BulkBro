@@ -41,7 +41,8 @@ export default function App() {
     addSetToExercise,
     updateWorkoutName,
     editWorkout, // Ensure exposed
-    startNewWorkout // Ensure mapped
+    startNewWorkout, // Ensure mapped
+    deleteWorkout // Exposed from hook
   } = useWorkout();
 
   const [view, setView] = useState<ViewState>('home');
@@ -120,9 +121,7 @@ export default function App() {
             onNavigate={handleNavigate}
             onEdit={(w) => { editWorkout(w); setView('active'); }}
             onDelete={(id) => {
-              // deleteWorkout needs to be exposed from useWorkout or we implement wrapper
-              // Use hook's deleteWorkout if available
-              // For now assume exposed or add it
+              deleteWorkout(id);
               setView('history');
             }}
           />

@@ -2,6 +2,7 @@ import React from 'react';
 import { LogOut, Link2, ExternalLink, Activity, Info, AlertCircle, Dumbbell, Trash2, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { Exercise, ExerciseType } from '../../types';
+import { useAuth } from '../../hooks/useAuth';
 
 interface SettingsViewProps {
     customExercises: Exercise[];
@@ -10,12 +11,26 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onSaveExercise, onDeleteExercise }) => {
+    const { user } = useAuth();
     const [newExerciseName, setNewExerciseName] = React.useState('');
     const [newExerciseType, setNewExerciseType] = React.useState<ExerciseType>('Stang');
     const [stravaConnected, setStravaConnected] = React.useState(false);
 
     const handleLogout = async () => {
+        // Clear sensitive local data to prevent leakage to next user
+        localStorage.removeItem('workoutHistory');
+        localStorage.removeItem('programs');
+        localStorage.removeItem('activeWorkout');
+        // We keep 'customExercises' as a cache, or clear it too? 
+        // Better clear everything to allow fresh sync.
+        localStorage.removeItem('customExercises');
+
+        // Remove Admin bypass if present
+        localStorage.removeItem('bb_admin_bypass');
+
         await supabase.auth.signOut();
+        // Force reload to reset all in-memory states
+        window.location.reload();
     };
 
     const handleAddExercise = (e: React.FormEvent) => {
@@ -50,10 +65,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
 
             {/* Account Section */}
             <section className="bg-slate-900 rounded-2xl p-5 border border-slate-800">
-                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-blue-500" />
-                    Konto
-                </h2>
+                <div className="flex justify-between items-start mb-4">
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <Activity className="w-5 h-5 text-blue-500" />
+                        Konto
+                    </h2>
+                    {user?.email && (
+                        <span className="text-xs font-mono text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
+                            {user.email}
+                        </span>
+                    )}
+                </div>
                 <button
                     onClick={handleLogout}
                     className="w-full flex items-center justify-center gap-2 py-3 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 rounded-xl transition-all"
@@ -81,7 +103,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
                     <select
                         className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white max-w-[100px] focus:outline-none focus:border-blue-500"
                         value={newExerciseType}
-                        onChange={e => setNewExerciseType(e.target.value)}
+                        onChange={e => setNewExerciseType(e.target.value as ExerciseType)}
                     >
                         <option value="Stang">Stang</option>
                         <option value="Manualer">Manualer</option>
@@ -98,8 +120,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ customExercises, onS
                     {customExercises.map(ex => (
                         <div key={ex.id} className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800 group hover:border-slate-700 transition-colors">
                             <div>
-                                <p className="font-medium text-white text-sm">{ex.navn}</p>
-                                <p className="text-[10px] text-slate-500 uppercase tracking-wide">{ex.beskrivelse}</p>
+                                <p className="font-medium text-white text-sm">{ex.name}</p>
+                                <p className="text-[10px] text-slate-500 uppercase tracking-wide">{ex.type}</p>
                             </div>
                             <button
                                 onClick={() => onDeleteExercise(ex.id)}

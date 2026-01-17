@@ -193,27 +193,45 @@ export const supabaseService = {
 
     // --- Custom Exercises (JSONB) ---
     async syncExercises(localExercises: Exercise[], userId: string) {
-        const { data, error } = await supabase.from('custom_exercises').select('*').eq('user_id', userId);
+        // Fetch ALL global exercises (not just user specific)
+        const { data, error } = await supabase.from('custom_exercises').select('*');
         if (error) return { exercises: localExercises };
 
         const cloudMap = new Map<string, any>();
         data?.forEach(row => cloudMap.set(String(row.data.id), row));
 
+        // Push Local (Only push ones that originated from THIS user or represent new ones?)
+        // If we want a shared library, users should push their new definitions.
+        // We probably shouldn't overwrite existing ones if we don't own them, but for this app's simplicity:
+        // We try to upsert local definitions. RLS should handle permission errors if we try to overwrite others.
+        // But for "Add to global", we just ensure they exist.
+
         const upserts = localExercises.map(e => {
             const match = cloudMap.get(String(e.id));
+
+            // If it exists in cloud and created by someone else (match.user_id !== userId), we skip upserting to avoid RLS error
+            // unless we want to allow editing others' exercises (requires RLS update).
+            // Let's safe guard: Only upsert if it's NEW or if match.user_id === userId
+            if (match && match.user_id !== userId) return null;
+
             return {
                 ...(match ? { id: match.id } : {}),
                 user_id: userId,
                 data: e,
                 updated_at: new Date().toISOString()
             };
-        });
-        if (upserts.length) await supabase.from('custom_exercises').upsert(upserts);
+        }).filter(Boolean); // Remove nulls
 
+        if (upserts.length) await supabase.from('custom_exercises').upsert(upserts as any);
+
+        // Merge: Cloud Wins for existence? 
+        // We want all from cloud + our local ones (if any not synced yet).
         const merged = [...localExercises];
+        // Add anything from cloud that we don't have locally
         cloudMap.forEach((row, id) => {
             if (!localExercises.find(e => String(e.id) === id)) merged.push(row.data);
         });
+
         return { exercises: merged };
     },
 

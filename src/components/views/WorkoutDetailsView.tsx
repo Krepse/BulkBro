@@ -7,7 +7,7 @@ interface WorkoutDetailsViewProps {
     workout: Okt;
     onNavigate: (view: any) => void;
     onEdit: (workout: Okt) => void;
-    onDelete: (id: number) => void;
+    onDelete: (id: string | number) => void;
 }
 
 export function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDetailsViewProps) {
@@ -15,6 +15,7 @@ export function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: Wo
     const [stravaActivity, setStravaActivity] = useState<StravaActivity | null>(null);
     const [hrData, setHrData] = useState<{ time: number, heartrate: number }[] | null>(null);
     const [isFetchingStrava, setIsFetchingStrava] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     useEffect(() => {
         if (stravaConnected && workout.startTime) {
@@ -127,7 +128,7 @@ export function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: Wo
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 pb-40">
+        <div className="min-h-screen bg-slate-50 pb-40 relative">
             <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
                 <button
                     onClick={() => onNavigate('history')}
@@ -218,17 +219,49 @@ export function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: Wo
                     </button>
 
                     <button
-                        onClick={() => {
-                            if (confirm('Er du sikker på at du vil slette denne økten?')) {
-                                onDelete(workout.id);
-                            }
-                        }}
+                        onClick={() => setShowDeleteConfirm(true)}
                         className="w-20 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-full transition-all active:scale-95 flex items-center justify-center border border-red-100"
                     >
                         <Icons.Trash2 className="w-6 h-6" />
                     </button>
                 </div>
             </main>
+
+            {/* Confirmation Modal */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2">
+                                <Icons.Trash2 className="w-8 h-8 text-red-500" />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Slette treningsøkt?</h3>
+                            <p className="text-slate-500 font-medium">
+                                Er du sikker på at du vil slette <span className="text-slate-800 font-bold">{workout.navn}</span>?
+                                <br />Denne handlingen kan ikke angres.
+                            </p>
+
+                            <div className="flex gap-3 w-full mt-4">
+                                <button
+                                    onClick={() => setShowDeleteConfirm(false)}
+                                    className="flex-1 py-4 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors uppercase tracking-wider text-sm"
+                                >
+                                    Avbryt
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        onDelete(workout.id);
+                                        setShowDeleteConfirm(false);
+                                    }}
+                                    className="flex-1 py-4 font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors uppercase tracking-wider text-sm shadow-lg shadow-red-200"
+                                >
+                                    Slett
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

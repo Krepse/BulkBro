@@ -33,6 +33,10 @@ export function useWorkout() {
         try {
             const saved = localStorage.getItem('customExercises');
             let parsed = saved ? JSON.parse(saved) : [];
+
+            // Filter out invalid/empty exercises (Ghost rows fix)
+            parsed = parsed.filter((e: any) => e.name && e.name.trim().length > 0);
+
             // Migration: Ensure existing exercises have a type
             parsed = parsed.map((e: any) => ({
                 ...e,
@@ -80,22 +84,30 @@ export function useWorkout() {
     useEffect(() => {
         if (!user) return;
 
-        // Sync Data on Mount/Login
         const sync = async () => {
-            // 1. Workouts (Fetch only for Relational)
-            const remoteWorkouts = await supabaseService.fetchWorkouts(user.id);
-            // Merge: If we have local workouts not in remote, we should ideally push them.
-            // For now, simpler strategy: "Cloud is Master for History".
-            // BUT user wants Local-First.
-            // If we have local workouts (id=number), and remote (id=uuid).
-            // We can just append Remote to Local if unique?
-            // BETTER: Just Replace Local History with Cloud History for consistency on load?
-            // User Prompt: "Hent workouts... Inkluder exercises og sets".
-            // Let's set history to what comes from Supabase + Keep Local unsaved ones?
-            // Actually, if we just saved to Supabase, we should have them there. 
-            // Let's setWorkoutHistory(remoteWorkouts) to verify data is coming from DB.
-            if (remoteWorkouts.length > 0) {
+            // 1. Sync Workouts (Cloud-First + Migration)
+            try {
+                // A. Upload Local-Only Workouts (Migration)
+                // We identify local-only workouts by checking if they have numeric IDs (legacy/local) 
+                // or if they are missing from a quick check (but numeric ID is the safest indicator of "never synced")
+                const localOnlyWorkouts = workoutHistory.filter(w => typeof w.id === 'number');
+
+                if (localOnlyWorkouts.length > 0) {
+                    console.log(`Syncing ${localOnlyWorkouts.length} local workouts to cloud...`);
+                    for (const workout of localOnlyWorkouts) {
+                        await supabaseService.saveWorkout(workout, user.id);
+                    }
+                    console.log("Migration complete.");
+                }
+
+                // B. Fetch Truth from Verified Cloud
+                const remoteWorkouts = await supabaseService.fetchWorkouts(user.id);
+                // Always update local state to match Cloud (Cloud is Master)
+                // This replaces the numeric-ID workouts with their new UUID versions
                 setWorkoutHistory(remoteWorkouts);
+
+            } catch (err) {
+                console.error("Sync error:", err);
             }
 
             // 2. Programs (Keep Sync Logic)
@@ -108,8 +120,20 @@ export function useWorkout() {
         };
 
         sync();
-    }, [user]); // We only want to run this on mount or when user changes (login)
+    }, [user]); // Run on mount/login
 
+
+    // --- EFFECTS: CLEAR STATE ON LOGOUT ---
+    useEffect(() => {
+        if (!user) {
+            setWorkoutHistory([]);
+            setPrograms([]);
+            // We don't necessarily clear customExercises immediately to avoid flash, 
+            // but for security/correctness across users, we should.
+            setCustomExercises([]);
+            setActiveWorkout(null);
+        }
+    }, [user]);
 
     // --- ACTIONS ---
 
@@ -202,8 +226,19 @@ export function useWorkout() {
 
     const finishWorkout = () => {
         if (activeWorkout) {
-            const finishedWorkout = {
+            // Filter out uncompleted sets and exercises with no completed sets
+            const filteredExercises = activeWorkout.ovelser.map(ex => ({
+                ...ex,
+                sett: ex.sett.filter(s => s.completed)
+            })).filter(ex => ex.sett.length > 0);
+
+            // If no exercises have completed sets, maybe we shouldn't save? 
+            // Or just save an empty workout? Let's save what we have, even if empty, 
+            // but usually a workout has at least one set.
+
+            const finishedWorkout: Okt = {
                 ...activeWorkout,
+                ovelser: filteredExercises,
                 endTime: new Date().toISOString()
             };
 
