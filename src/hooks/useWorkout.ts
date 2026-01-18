@@ -224,7 +224,7 @@ export function useWorkout() {
         setActiveWorkout({ ...activeWorkout, navn: name });
     };
 
-    const finishWorkout = () => {
+    const finishWorkout = async () => {
         if (activeWorkout) {
             // Filter out uncompleted sets and exercises with no completed sets
             const filteredExercises = activeWorkout.ovelser.map(ex => ({
@@ -232,34 +232,41 @@ export function useWorkout() {
                 sett: ex.sett.filter(s => s.completed)
             })).filter(ex => ex.sett.length > 0);
 
-            // If no exercises have completed sets, maybe we shouldn't save? 
-            // Or just save an empty workout? Let's save what we have, even if empty, 
-            // but usually a workout has at least one set.
-
             const finishedWorkout: Okt = {
                 ...activeWorkout,
                 ovelser: filteredExercises,
                 endTime: new Date().toISOString()
             };
 
+            // 1. Optimistic Update (Local ID)
             const existingIndex = workoutHistory.findIndex(w => w.id === finishedWorkout.id);
             let updatedHistory;
             if (existingIndex >= 0) {
-                // Update existing workout
                 updatedHistory = [...workoutHistory];
                 updatedHistory[existingIndex] = finishedWorkout;
             } else {
-                // Add new workout
                 updatedHistory = [finishedWorkout, ...workoutHistory];
             }
             setWorkoutHistory(updatedHistory);
+            setActiveWorkout(null);
 
-            // Sync to Supabase
+            // 2. Sync to Supabase & Update ID
             if (user) {
-                supabaseService.saveWorkout(finishedWorkout, user.id);
+                try {
+                    const newId = await supabaseService.saveWorkout(finishedWorkout, user.id);
+                    if (newId) {
+                        // Update the local workout with the real UUID to prevent duplicate syncs
+                        setWorkoutHistory(prev => prev.map(w =>
+                            w.id === finishedWorkout.id ? { ...w, id: newId } : w
+                        ));
+                    }
+                } catch (err) {
+                    console.error("Failed to save workout to cloud:", err);
+                }
             }
+        } else {
+            setActiveWorkout(null);
         }
-        setActiveWorkout(null);
     };
 
     const deleteWorkout = (id: number | string) => {

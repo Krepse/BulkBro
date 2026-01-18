@@ -128,6 +128,7 @@ export const supabaseService = {
         }
 
         console.log("Workout saved to Supabase Relational DB:", newWorkoutId);
+        return newWorkoutId;
     },
 
     async deleteWorkout(workoutId: string, userId: string) {

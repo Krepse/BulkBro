@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
 import { useMantra } from './hooks/useMantra';
-import { isStravaConnected, disconnectStrava, getActivities, getActivityStreams, type StravaActivity } from './services/strava';
+import { isStravaConnected, disconnectStrava, getActivities, getActivityStreams, exchangeToken, getRecentActivities, calculateRecoveryStatus, type StravaActivity } from './services/strava';
 import type { Exercise, Okt, Program, ExerciseType } from './types';
 import { Button } from './components/ui/Button';
 import { Icons } from './components/ui/Icons';
@@ -18,6 +18,26 @@ interface HomeViewProps {
 
 function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
   const mantra = useMantra();
+  const [recoveryStatus, setRecoveryStatus] = useState<'JA' | 'OK' | 'NEI' | 'LOADING' | 'OFFLINE'>('LOADING');
+  const [showRecoveryInfo, setShowRecoveryInfo] = useState(false);
+
+  useEffect(() => {
+    async function checkRecovery() {
+      if (!isStravaConnected()) {
+        setRecoveryStatus('OFFLINE');
+        return;
+      }
+      try {
+        const activities = await getRecentActivities();
+        const status = calculateRecoveryStatus(activities);
+        setRecoveryStatus(status);
+      } catch (e) {
+        console.error(e);
+        setRecoveryStatus('OFFLINE');
+      }
+    }
+    checkRecovery();
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 pb-20 text-center relative overflow-hidden font-sans bg-slate-900 text-white">
@@ -30,6 +50,14 @@ function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
 
       {/* Overlay */}
       <div className="absolute inset-0 bg-indigo-950/40 z-0 backdrop-blur-[2px]" />
+
+      {/* SETTINGS BUTTON */}
+      <button
+        onClick={() => onNavigate('settings')}
+        className="absolute top-4 right-4 z-50 p-2 text-white/50 hover:text-white transition-colors"
+      >
+        <Icons.Settings className="w-6 h-6" />
+      </button>
 
       {/* LOGO AREA */}
       <div className="mb-8 relative z-10 animate-fade-in-up flex flex-col items-center">
@@ -49,18 +77,97 @@ function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
         <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
           <Icons.Activity className="w-6 h-6 text-white" />
           <div className="text-left">
-            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Økter Totalt</p>
-            <p className="text-2xl font-black text-white italic">{workoutHistory.length}</p>
+            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Økter siste 7 dager</p>
+            <p className="text-2xl font-black text-white italic">
+              {workoutHistory.filter(w => {
+                const date = new Date(w.startTime || w.dato); // Use startTime if available, fallback to legacy dato string parser if needed (but UUID migration uses startTime)
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                return date >= sevenDaysAgo;
+              }).length}
+            </p>
           </div>
         </div>
         <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
           <Icons.Trophy className="w-6 h-6 text-white" />
           <div className="text-left">
-            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">PRs Satt</p>
+            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">PRs siste 7 dager</p>
             <p className="text-2xl font-black text-white italic">0</p>
           </div>
         </div>
+
+        <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
+          <Icons.Calendar className="w-6 h-6 text-white" />
+          <div className="text-left">
+            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Økter i år ({new Date().getFullYear()})</p>
+            <p className="text-2xl font-black text-white italic">
+              {workoutHistory.filter(w => {
+                const date = new Date(w.startTime || w.dato);
+                return date.getFullYear() === new Date().getFullYear();
+              }).length}
+            </p>
+          </div>
+        </div>
+
+        {/* RESTITUSJON WIDGET */}
+        <div className={`backdrop-blur-md p-6 rounded-[2rem] border shadow-lg flex flex-col items-start gap-3 transition-all relative ${recoveryStatus === 'JA' ? 'bg-green-500/20 border-green-500/30' :
+          recoveryStatus === 'OK' ? 'bg-yellow-500/20 border-yellow-500/30' :
+            recoveryStatus === 'NEI' ? 'bg-red-500/20 border-red-500/30' :
+              'bg-white/10 border-white/10'
+          }`}>
+          <div className="flex justify-between w-full">
+            <Icons.Activity className="w-6 h-6 text-white" />
+            <button onClick={() => setShowRecoveryInfo(true)} className="text-white/50 hover:text-white transition-colors">
+              <Icons.Info className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="text-left">
+            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Trene i dag?</p>
+            <p className={`text-2xl font-black italic ${recoveryStatus === 'JA' ? 'text-green-400' :
+              recoveryStatus === 'OK' ? 'text-yellow-400' :
+                recoveryStatus === 'NEI' ? 'text-red-400' :
+                  'text-white'
+              }`}>
+              {recoveryStatus === 'OFFLINE' ? '-' :
+                recoveryStatus === 'LOADING' ? '...' :
+                  recoveryStatus}
+            </p>
+          </div>
+        </div>
       </div>
+
+      {/* RECOVERY INFO MODAL */}
+      {showRecoveryInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-white/10 rounded-[2rem] p-8 max-w-sm w-full shadow-2xl relative">
+            <button onClick={() => setShowRecoveryInfo(false)} className="absolute top-4 right-4 text-white/50 hover:text-white">
+              <Icons.X className="w-6 h-6" />
+            </button>
+            <h3 className="text-xl font-black italic text-white mb-4">Om Restitusjonstatus</h3>
+            <p className="text-sm text-indigo-200 mb-4">
+              Statusen er basert på treningsbelastningen din fra Strava de siste 7 dagene (Heart Rate stress eller varighet).
+            </p>
+            <div className="space-y-3 text-left">
+              <div className="flex items-center gap-3">
+                <span className="text-green-400 font-black text-lg w-8">JA</span>
+                <p className="text-xs text-white">Lav belastning. Du er uthvilt og klar for hardtrening.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-yellow-400 font-black text-lg w-8">OK</span>
+                <p className="text-xs text-white">Moderat belastning. Tren hvis du føler deg bra.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-red-400 font-black text-lg w-8">NEI</span>
+                <p className="text-xs text-white">Høy belastning. Vurder en hviledag for å unngå overtrening.</p>
+              </div>
+            </div>
+            <div className="mt-6 pt-4 border-t border-white/10 text-center">
+              <p className="text-[10px] text-white/40 uppercase tracking-widest">Powered by Strava Data</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* BUTTONS */}
       <div className="w-full max-w-sm space-y-4 relative z-10 animate-fade-in-up delay-200">
@@ -1269,7 +1376,11 @@ function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewProps) {
 // --- VIEW COMPONENTS END ---
 
 // Simple types for legacy function calls/params
-type ViewState = 'home' | 'active' | 'history' | 'settings' | 'new_workout' | 'select_program' | 'create_program' | 'edit_program_form' | 'exercise_library' | 'create_exercise' | 'select_exercise' | 'workout_details';
+type ViewState = 'home' | 'active' | 'history' | 'settings' | 'new_workout' | 'select_program' | 'create_program' | 'edit_program_form' | 'exercise_library' | 'create_exercise' | 'select_exercise' | 'workout_details' | 'programs';
+
+
+
+// ... (existing imports)
 
 export default function App() {
   const {
@@ -1290,8 +1401,8 @@ export default function App() {
     toggleSetComplete,
     addSetToExercise,
     updateWorkoutName,
-    editWorkout, // Ensure exposed
-    deleteWorkout // Exposed from hook
+    editWorkout,
+    deleteWorkout
   } = useWorkout();
 
   const [view, setView] = useState<ViewState>('home');
@@ -1304,6 +1415,30 @@ export default function App() {
   const [draftProgramName, setDraftProgramName] = useState('');
   const [draftProgramExercises, setDraftProgramExercises] = useState<string[]>([]);
 
+  // --- STRAVA CALLBACK HANDLER ---
+  useEffect(() => {
+    const handleStravaCallback = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+
+      if (code) {
+        console.log("Strava code detected, exchanging...");
+        const success = await exchangeToken(code);
+
+        if (success) {
+          console.log("Strava connected successfully!");
+          // Remove code from URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          // Navigate to settings to show connected state
+          setView('settings');
+        } else {
+          console.error("Failed to exchange Strava token");
+        }
+      }
+    };
+
+    handleStravaCallback();
+  }, []);
 
   // Auth Guard
   if (!user) {
@@ -1393,6 +1528,27 @@ export default function App() {
             onNavigate={handleNavigate}
             onStartEmpty={() => handleStartWorkoutWrapper()}
             onStartProgram={handleStartWorkoutWrapper}
+            onDeleteProgram={deleteProgram}
+          />
+        );
+
+      case 'programs':
+        return (
+          <ProgramsView
+            programs={programs}
+            onNavigate={handleNavigate}
+            onCreateProgram={() => {
+              setEditingProgram(null);
+              setDraftProgramName('');
+              setDraftProgramExercises([]);
+              setView('edit_program_form');
+            }}
+            onEditProgram={(p) => {
+              setEditingProgram(p);
+              setDraftProgramName(p.navn);
+              setDraftProgramExercises(p.ovelser);
+              setView('edit_program_form');
+            }}
             onDeleteProgram={deleteProgram}
           />
         );
@@ -1498,13 +1654,29 @@ export default function App() {
       {/* Bottom Navigation Bar */}
       {!activeWorkout && (
         <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-lg border-t border-slate-800 pb-safe z-50">
-          <div className="flex justify-around items-center h-16 max-w-md mx-auto px-4">
+          <div className="flex justify-around items-center h-20 max-w-md mx-auto px-4">
             <button
               onClick={() => setView('home')}
               className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'home' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              <Icons.Dumbbell className={`w-6 h-6 mb-1 ${view === 'home' ? 'fill-current' : ''}`} />
-              <span className="text-[10px] font-medium">Trening</span>
+              <Icons.Home className={`w-6 h-6 mb-1 ${view === 'home' ? 'fill-current' : ''}`} />
+              <span className="text-[10px] font-medium">Hjem</span>
+            </button>
+
+            <button
+              onClick={() => setView('programs')}
+              className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'programs' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              <Icons.ClipboardList className={`w-6 h-6 mb-1 ${view === 'programs' ? 'fill-current' : ''}`} />
+              <span className="text-[10px] font-medium">Programmer</span>
+            </button>
+
+            <button
+              onClick={() => setView('exercise_library')}
+              className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'exercise_library' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              <Icons.Dumbbell className={`w-6 h-6 mb-1 ${view === 'exercise_library' ? 'fill-current' : ''}`} />
+              <span className="text-[10px] font-medium">Øvelser</span>
             </button>
 
             <button
@@ -1513,14 +1685,6 @@ export default function App() {
             >
               <Icons.History className={`w-6 h-6 mb-1 ${view === 'history' ? 'fill-current' : ''}`} />
               <span className="text-[10px] font-medium">Historikk</span>
-            </button>
-
-            <button
-              onClick={() => setView('settings')}
-              className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'settings' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              <Icons.Settings className={`w-6 h-6 mb-1 ${view === 'settings' ? 'fill-current' : ''}`} />
-              <span className="text-[10px] font-medium">Innstillinger</span>
             </button>
           </div>
         </nav>
