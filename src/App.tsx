@@ -1,20 +1,1272 @@
-import { useState } from 'react';
-import { Dumbbell, Calendar, Settings } from 'lucide-react';
-import { HomeView } from './components/views/HomeView';
-import { ActiveWorkoutView } from './components/views/ActiveWorkoutView';
-import { HistoryView } from './components/views/HistoryView';
-import { SettingsView } from './components/views/SettingsView';
-import { AuthView } from './components/views/AuthView';
-import { ProgramSelectView } from './components/views/ProgramSelectView';
-import { ProgramFormView } from './components/views/ProgramFormView';
-import { ProgramsView } from './components/views/ProgramsView'; // Assuming this exists for managing programs
-import { ExerciseLibraryView } from './components/views/ExerciseLibraryView';
-import { ExerciseFormView } from './components/views/ExerciseFormView';
-import { ExerciseSelectView } from './components/views/ExerciseSelectView';
-import { WorkoutDetailsView } from './components/views/WorkoutDetailsView';
 
+import { useState, useEffect } from 'react';
+import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
-import type { Exercise, Okt, Program } from './types';
+import { useMantra } from './hooks/useMantra';
+import { isStravaConnected, disconnectStrava, getActivities, getActivityStreams, type StravaActivity } from './services/strava';
+import type { Exercise, Okt, Program, ExerciseType } from './types';
+import { Button } from './components/ui/Button';
+import { Icons } from './components/ui/Icons';
+import { ExerciseList } from './components/workout/ExerciseList';
+
+// --- VIEW COMPONENTS START ---
+
+interface HomeViewProps {
+  onNavigate: (view: any) => void;
+  workoutHistory: Okt[];
+}
+
+function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
+  const mantra = useMantra();
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 pb-20 text-center relative overflow-hidden font-sans bg-slate-900 text-white">
+
+      {/* Background Image */}
+      <div
+        className="absolute inset-0 bg-cover bg-center z-0"
+        style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&q=80&w=400")' }}
+      />
+
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-indigo-950/40 z-0 backdrop-blur-[2px]" />
+
+      {/* LOGO AREA */}
+      <div className="mb-8 relative z-10 animate-fade-in-up flex flex-col items-center">
+        <div className="w-28 h-28 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-lg border-[6px] border-white/20 mx-auto mb-6 transform hover:scale-105 transition-transform duration-300">
+          <span className="text-white font-black italic text-4xl">BB</span>
+        </div>
+        <h1 className="text-[4rem] leading-none font-black text-white italic tracking-tighter mb-2 drop-shadow-lg">BULKBRO</h1>
+        <p className="text-indigo-200 font-bold uppercase tracking-[0.2em] text-[10px] sm:text-xs">Din Digitale Treningspartner</p>
+
+        <div className="mt-8 px-4 py-3 bg-black/30 rounded-full backdrop-blur-md border border-white/10">
+          <p className="text-white font-black italic uppercase text-xs tracking-wider animate-pulse">{mantra}</p>
+        </div>
+      </div>
+
+      {/* STATS CARDS */}
+      <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-12 relative z-10 animate-fade-in-up delay-100">
+        <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
+          <Icons.Activity className="w-6 h-6 text-white" />
+          <div className="text-left">
+            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">Økter Totalt</p>
+            <p className="text-2xl font-black text-white italic">{workoutHistory.length}</p>
+          </div>
+        </div>
+        <div className="bg-white/10 backdrop-blur-md p-6 rounded-[2rem] border border-white/10 shadow-lg flex flex-col items-start gap-3 hover:bg-white/20 transition-all">
+          <Icons.Trophy className="w-6 h-6 text-white" />
+          <div className="text-left">
+            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">PRs Satt</p>
+            <p className="text-2xl font-black text-white italic">0</p>
+          </div>
+        </div>
+      </div>
+
+      {/* BUTTONS */}
+      <div className="w-full max-w-sm space-y-4 relative z-10 animate-fade-in-up delay-200">
+        <Button
+          onClick={() => onNavigate('select_program')}
+          variant="primary"
+          className="w-full"
+        >
+          <Icons.Plus className="w-6 h-6 stroke-[3px]" />
+          Start Ny Økt
+        </Button>
+
+        <Button
+          onClick={() => onNavigate('create_program')}
+          variant="slate"
+          className="w-full"
+        >
+          <Icons.ClipboardList className="w-6 h-6" />
+          Programmer
+        </Button>
+
+        <Button
+          onClick={() => onNavigate('exercise_library')}
+          variant="slate"
+          className="w-full"
+        >
+          <Icons.Dumbbell className="w-6 h-6" />
+          Øvelsesbibliotek
+        </Button>
+
+        <Button
+          onClick={() => onNavigate('history')}
+          variant="glass"
+          className="group w-full"
+        >
+          <Icons.History className="w-6 h-6 text-white group-hover:rotate-[-20deg] transition-transform" />
+          Historikk
+        </Button>
+
+        <Button
+          onClick={() => onNavigate('settings')}
+          variant="glass"
+          size="icon"
+          className="mx-auto mt-8 w-12 h-12 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white border-white/5"
+        >
+          <Icons.Settings className="w-6 h-6" />
+        </Button>
+      </div>
+
+    </div>
+  );
+}
+
+interface ActiveWorkoutViewProps {
+  workout: Okt;
+  onUpdateWorkoutName: (name: string) => void;
+  onFinish: () => void;
+  onNavigate: (view: any) => void;
+  onRemoveExercise: (id: string | number) => void;
+  onUpdateSet: (exIdx: number, setIdx: number, field: 'kg' | 'reps', value: string) => void;
+  onToggleSet: (exIdx: number, setIdx: number) => void;
+  onAddSet: (exIdx: number) => void;
+  onAddExercise: () => void;
+}
+
+function ActiveWorkoutView({
+  workout,
+  onUpdateWorkoutName,
+  onFinish,
+  onNavigate,
+  onRemoveExercise,
+  onUpdateSet,
+  onToggleSet,
+  onAddSet,
+  onAddExercise
+}: ActiveWorkoutViewProps) {
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white/90 backdrop-blur-xl px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('home')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <input
+            type="text"
+            value={workout.navn}
+            onChange={(e) => onUpdateWorkoutName(e.target.value)}
+            className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 text-slate-800 uppercase tracking-tighter italic placeholder-slate-300 min-w-0 p-0"
+            placeholder="Navn på økt"
+          />
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{workout.dato}</p>
+        </div>
+        <button
+          onClick={onFinish}
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200 transition-all active:scale-95"
+        >
+          <Icons.CheckCircle2 className="w-5 h-5" />
+          <span className="hidden sm:inline">Ferdig</span>
+        </button>
+      </header>
+
+      <main className="max-w-xl mx-auto p-4 space-y-8 mt-6">
+        {workout.ovelser.map((ex, exIdx) => (
+          <div key={ex.id} className="bg-white rounded-[2rem] p-6 shadow-xl shadow-slate-100/50 border border-slate-100/50">
+            <div className="flex justify-between items-start mb-8 pl-4 border-l-4 border-indigo-600">
+              <h3 className="font-black text-2xl text-slate-800 uppercase tracking-tighter italic leading-none">{ex.navn}</h3>
+              <button
+                onClick={() => onRemoveExercise(ex.id)}
+                className="text-slate-300 hover:text-red-400 transition-colors p-2 -mr-2 -mt-2"
+              >
+                <Icons.Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-12 gap-3 px-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">
+                <div className="col-span-2 flex justify-center">#</div>
+                {ex.type !== 'Egenvekt' && <div className="col-span-4 text-center">KG</div>}
+                <div className={`${ex.type === 'Egenvekt' ? 'col-span-8' : 'col-span-4'} text-center`}>REPS</div>
+                <div className="col-span-2 text-center">OK</div>
+              </div>
+
+              {ex.sett.map((set, sIdx) => (
+                <div
+                  key={set.id}
+                  className={`grid grid-cols-12 gap-3 items-center transition-all duration-300 ${set.completed ? 'opacity-50 grayscale-[0.5]' : ''}`}
+                >
+                  <div className="col-span-2 flex justify-center">
+                    <div className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-400 font-bold text-sm">
+                      {sIdx + 1}
+                    </div>
+                  </div>
+
+                  {ex.type !== 'Egenvekt' && (
+                    <div className="col-span-4 relative">
+                      <input
+                        type="number"
+                        value={set.kg}
+                        onChange={(e) => onUpdateSet(exIdx, sIdx, 'kg', e.target.value)}
+                        className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all placeholder-transparent"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">KG</span>
+                    </div>
+                  )}
+
+                  <div className={`${ex.type === 'Egenvekt' ? 'col-span-8' : 'col-span-4'} relative`}>
+                    <input
+                      type="number"
+                      value={set.reps}
+                      onChange={(e) => onUpdateSet(exIdx, sIdx, 'reps', e.target.value)}
+                      className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">REPS</span>
+                  </div>
+
+                  <div className="col-span-2 flex justify-center">
+                    <button
+                      onClick={() => onToggleSet(exIdx, sIdx)}
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${set.completed
+                        ? 'bg-green-500 text-white shadow-lg shadow-green-200'
+                        : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                        }`}
+                    >
+                      <Icons.Check className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              onClick={() => onAddSet(exIdx)}
+              variant="secondary"
+              className="mt-8 w-full border-dashed border-slate-200 text-slate-400 font-bold text-xs hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50"
+              size="md"
+            >
+              <Icons.Plus className="w-4 h-4" /> Legg til sett
+            </Button>
+          </div>
+        ))}
+
+        <div className="pt-8 pb-12">
+          <Button
+            onClick={onAddExercise}
+            variant="primary"
+            className="w-full"
+          >
+            <Icons.Plus className="w-6 h-6" />
+            + Legg til ny øvelse
+          </Button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+interface HistoryViewProps {
+  onNavigate: (view: any) => void;
+  workoutHistory: Okt[];
+  onSelectWorkout: (workout: Okt) => void;
+}
+
+function HistoryView({ onNavigate, workoutHistory, onSelectWorkout }: HistoryViewProps) {
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-10">
+        <button
+          onClick={() => onNavigate('home')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Historikk</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-4 space-y-4 mt-4">
+        {workoutHistory.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-32 opacity-50">
+            <div className="bg-slate-200 p-8 rounded-full mb-6">
+              <Icons.History className="w-16 h-16 text-slate-400" />
+            </div>
+            <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Ingen økter lagret ennå</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {workoutHistory.map(w => (
+              <button
+                key={w.id}
+                onClick={() => onSelectWorkout(w)}
+                className="w-full bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex justify-between items-center group hover:shadow-md hover:border-indigo-100 transition-all text-left"
+              >
+                <div>
+                  <h3 className="font-black text-slate-800 text-xl uppercase tracking-tighter italic mb-1">{w.navn}</h3>
+                  <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-widest">
+                    <span>{w.dato}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <span className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-indigo-100">
+                    {w.ovelser?.length || 0} Øvelser
+                  </span>
+                  <span className="text-slate-300 text-[10px] font-bold">
+                    {w.ovelser?.reduce((acc, curr) => acc + (curr.sett?.length || 0), 0) || 0} SETT
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+const AuthView: React.FC = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    // ADMIN BYPASS
+    if (email === 'Admin' && password === 'Admin') {
+      localStorage.setItem('bb_admin_bypass', 'true');
+      window.location.reload();
+      return;
+    }
+
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) throw error;
+        setMessage({ type: 'success', text: 'Sjekk e-posten din for å bekrefte kontoen!' });
+      }
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-slate-950 text-slate-100">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold tracking-tight text-blue-500 mb-2">BulkBro</h1>
+          <p className="text-slate-400">Logg inn for å synkronisere treningen din</p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <div className="flex space-x-2 mb-6 bg-slate-800 p-1 rounded-lg">
+            <button
+              onClick={() => { setIsLogin(true); setMessage(null); }}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                }`}
+            >
+              Logg Inn
+            </button>
+            <button
+              onClick={() => { setIsLogin(false); setMessage(null); }}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                }`}
+            >
+              Registrer
+            </button>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">E-post</label>
+              <div className="relative">
+                <Icons.Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+                  placeholder="navn@eksempel.no"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Passord</label>
+              <div className="relative">
+                <Icons.Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            </div>
+
+            {message && (
+              <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${message.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                }`}>
+                <Icons.AlertCircle className="w-4 h-4 shrink-0" />
+                {message.text}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3.5 rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <Icons.Loader2 className="w-5 h-5 animate-spin" />
+              ) : isLogin ? (
+                <>
+                  <Icons.LogIn className="w-5 h-5" />
+                  Logg Inn
+                </>
+              ) : (
+                <>
+                  <Icons.UserPlus className="w-5 h-5" />
+                  Opprett Konto
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface ProgramSelectViewProps {
+  programs: Program[];
+  onNavigate: (view: any) => void;
+  onStartEmpty: () => void;
+  onStartProgram: (program: Program) => void;
+  onDeleteProgram: (id: number) => void;
+}
+
+function ProgramSelectView({
+  programs,
+  onNavigate,
+  onStartEmpty,
+  onStartProgram,
+  onDeleteProgram
+}: ProgramSelectViewProps) {
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('home')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Velg Økt</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-4 mt-6">
+        {/* Empty Workout Option */}
+        <button
+          onClick={onStartEmpty}
+          className="w-full bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md hover:border-indigo-200 transition-all group text-left"
+        >
+          <div className="w-16 h-16 bg-slate-100 rounded-3xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+            <Icons.Plus className="w-8 h-8 text-slate-300 group-hover:text-indigo-500" />
+          </div>
+          <div>
+            <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter italic">Tom Økt</h3>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Start uten program</p>
+          </div>
+        </button>
+
+        <div className="h-px bg-slate-100 my-6"></div>
+
+        <p className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4 mb-2">Dine Programmer</p>
+
+        {programs.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-slate-400 font-bold italic mb-4">Ingen programmer funnet</p>
+            <button onClick={() => onNavigate('create_program')} className="text-indigo-500 font-bold underline uppercase tracking-wider text-sm">Lag ditt første program</button>
+          </div>
+        ) : (
+          programs.map(program => (
+            <div key={program.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 group hover:shadow-md hover:border-indigo-200 transition-all relative overflow-hidden">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-black text-slate-900 text-2xl uppercase tracking-tighter italic">{program.navn}</h3>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{program.ovelser.length} Øvelser</p>
+                </div>
+                <button onClick={() => onDeleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors">
+                  <Icons.Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-6">
+                {program.ovelser.slice(0, 3).map((ex, i) => (
+                  <span key={i} className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">{ex}</span>
+                ))}
+                {program.ovelser.length > 3 && (
+                  <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">+{program.ovelser.length - 3}</span>
+                )}
+              </div>
+
+              <button
+                onClick={() => onStartProgram(program)}
+                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl uppercase tracking-widest text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"
+              >
+                Start Økt <Icons.Dumbbell className="w-4 h-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </main>
+    </div>
+  );
+}
+
+interface ProgramFormViewProps {
+  onNavigate: (view: any) => void;
+  onSave: (program: Program) => void;
+  editingProgram: Program | null;
+  onAddExercise: () => void;
+  newProgramExercises: string[];
+  draftName: string;
+  setDraftName: (name: string) => void;
+  setDraftExercises: (exercises: string[]) => void;
+}
+
+function ProgramFormView({
+  onNavigate,
+  onSave,
+  editingProgram,
+  onAddExercise,
+  newProgramExercises,
+  draftName,
+  setDraftName,
+  setDraftExercises
+}: ProgramFormViewProps) {
+
+  // Initialize draft if editing
+  useEffect(() => {
+    if (editingProgram && draftName === '' && newProgramExercises.length === 0) {
+      setDraftName(editingProgram.navn);
+      setDraftExercises(editingProgram.ovelser);
+    }
+  }, [editingProgram, setDraftName, setDraftExercises]);
+
+  const handleSave = () => {
+    const program: Program = {
+      id: editingProgram ? editingProgram.id : Date.now(),
+      navn: draftName,
+      ovelser: newProgramExercises
+    };
+    onSave(program);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('create_program')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingProgram ? 'Rediger Program' : 'Nytt Program'}</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
+        <div className="space-y-4">
+          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Program Navn</label>
+          <input
+            type="text"
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
+            placeholder="F.eks. Helkropp A"
+          />
+        </div>
+
+        <div className="space-y-4">
+          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Øvelser ({newProgramExercises.length})</label>
+          {newProgramExercises.map((exName, idx) => (
+            <div key={idx} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
+              <span className="font-bold text-slate-700 uppercase tracking-tight">{exName}</span>
+              <button
+                onClick={() => setDraftExercises(newProgramExercises.filter((_, i) => i !== idx))}
+                className="text-slate-300 hover:text-red-400 p-2"
+              >
+                <Icons.Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+          ))}
+
+          <div className="relative group mt-4">
+            <button
+              onClick={onAddExercise}
+              className="w-full p-4 rounded-[2rem] bg-indigo-50 text-indigo-600 font-bold text-sm border-2 border-indigo-100 hover:border-indigo-300 hover:bg-indigo-100 transition-all text-center uppercase tracking-wider flex items-center justify-center gap-2"
+            >
+              <Icons.Search className="w-5 h-5" />
+              + Legg til øvelse
+            </button>
+          </div>
+        </div>
+
+        <Button
+          onClick={handleSave}
+          disabled={!draftName || newProgramExercises.length === 0}
+          variant="slate"
+          className="mt-12 w-full"
+        >
+          <Icons.CheckCircle2 className="w-6 h-6" />
+          Lagre Program
+        </Button>
+      </main>
+    </div>
+  );
+}
+
+interface ProgramsViewProps {
+  programs: Program[];
+  onNavigate: (view: any) => void;
+  onCreateProgram: () => void;
+  onEditProgram: (program: Program) => void;
+  onDeleteProgram: (id: number) => void;
+}
+
+function ProgramsView({
+  programs,
+  onNavigate,
+  onCreateProgram,
+  onEditProgram,
+  onDeleteProgram
+}: ProgramsViewProps) {
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('home')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Programmer</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-4 mt-6">
+        <Button
+          onClick={onCreateProgram}
+          variant="primary"
+          className="w-full mb-8"
+        >
+          <Icons.Plus className="w-6 h-6 stroke-[3px]" />
+          Nytt Program
+        </Button>
+
+        {programs.length === 0 ? (
+          <div className="text-center py-12 text-slate-400 font-bold italic">
+            Ingen programmer lagret ennå.
+          </div>
+        ) : (
+          programs.map(program => (
+            <div
+              key={program.id}
+              className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 group hover:shadow-md hover:border-indigo-200 transition-all relative overflow-hidden cursor-pointer"
+              onClick={() => onEditProgram(program)}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-black text-slate-900 text-2xl uppercase tracking-tighter italic">{program.navn}</h3>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{program.ovelser.length} Øvelser</p>
+                </div>
+                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => onEditProgram(program)} className="text-slate-200 hover:text-indigo-500 transition-colors p-2">
+                    <Icons.Pencil className="w-5 h-5" />
+                  </button>
+                  <button onClick={() => onDeleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors p-2">
+                    <Icons.Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {program.ovelser.slice(0, 3).map((ex, i) => (
+                  <span key={i} className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">{ex}</span>
+                ))}
+                {program.ovelser.length > 3 && (
+                  <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-100">+{program.ovelser.length - 3}</span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </main>
+    </div>
+  );
+}
+
+interface ExerciseLibraryViewProps {
+  onNavigate: (view: any) => void;
+  customExercises: Exercise[];
+  onDeleteExercise: (id: string) => void;
+  onEditExercise: (ex: Exercise) => void;
+  onCreateExercise: () => void;
+}
+
+function ExerciseLibraryView({
+  onNavigate,
+  customExercises,
+  onDeleteExercise,
+  onEditExercise,
+  onCreateExercise
+}: ExerciseLibraryViewProps) {
+  const [search, setSearch] = useState('');
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('home')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Øvelsesbibliotek</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-4 space-y-6 mt-2">
+        <ExerciseList
+          exercises={customExercises}
+          search={search}
+          onSearchChange={setSearch}
+          mode="library"
+          onDelete={onDeleteExercise}
+          onEdit={onEditExercise}
+          onCreate={onCreateExercise}
+        />
+      </main>
+    </div>
+  );
+}
+
+interface ExerciseFormViewProps {
+  onNavigate: (view: any) => void;
+  onSave: (name: string, type: string) => void;
+  editingExercise?: Exercise | null;
+  returnView: string;
+}
+
+const EXERCISE_TYPES: ExerciseType[] = ['Stang', 'Manualer', 'Kabel', 'Egenvekt', 'Maskin'];
+
+function ExerciseFormView({
+  onNavigate,
+  onSave,
+  editingExercise,
+  returnView
+}: ExerciseFormViewProps) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState<ExerciseType>('Stang');
+
+  useEffect(() => {
+    if (editingExercise) {
+      setName(editingExercise.name);
+      // Fallback to 'Stang' if existing data is weird, though useWorkout handles migration mostly.
+      // If editingExercise doesn't have a type property yet (runtime issue), try to deduce or default.
+      setType(editingExercise.type || 'Stang');
+    } else {
+      setName('');
+      setType('Stang');
+    }
+  }, [editingExercise]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate(returnView)}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">
+          {editingExercise ? 'Rediger Øvelse' : 'Ny Øvelse'}
+        </h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
+        <div className="space-y-4">
+          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Navn</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
+            placeholder="F.eks. Benkpress"
+            autoFocus
+          />
+        </div>
+
+        <div className="space-y-4">
+          <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Øvelsestype</label>
+          <div className="grid grid-cols-2 gap-3">
+            {EXERCISE_TYPES.map((t) => (
+              <button
+                key={t}
+                onClick={() => setType(t)}
+                className={`p-4 rounded-[1.5rem] border-2 font-bold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${type === t
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200'
+                  : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200 hover:text-indigo-500'
+                  }`}
+              >
+                {type === t && <Icons.CheckCircle2 className="w-4 h-4" />}
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Button
+          onClick={() => onSave(name, type)}
+          disabled={!name}
+          variant="slate"
+          className="mt-12 w-full"
+        >
+          <Icons.CheckCircle2 className="w-6 h-6" />
+          {editingExercise ? 'Oppdater Øvelse' : 'Lagre Øvelse'}
+        </Button>
+      </main>
+    </div>
+  );
+}
+
+interface ExerciseSelectViewProps {
+  onNavigate: (view: any) => void;
+  onSelect: (ex: Exercise) => void;
+  customExercises: Exercise[];
+  onCreateExercise: () => void;
+  returnView: string;
+}
+
+function ExerciseSelectView({
+  onNavigate,
+  onSelect,
+  customExercises,
+  onCreateExercise,
+  returnView
+}: ExerciseSelectViewProps) {
+  const [search, setSearch] = useState('');
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate(returnView)} // Navigate back to where we came from
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Velg Øvelse</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-4 space-y-6 mt-2">
+        <ExerciseList
+          exercises={customExercises}
+          search={search}
+          onSearchChange={setSearch}
+          mode="select"
+          onSelect={onSelect}
+          onCreate={onCreateExercise}
+        />
+      </main>
+    </div>
+  );
+}
+
+interface WorkoutDetailsViewProps {
+  workout: Okt;
+  onNavigate: (view: any) => void;
+  onEdit: (workout: Okt) => void;
+  onDelete: (id: string | number) => void;
+}
+
+function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDetailsViewProps) {
+  const [stravaConnected] = useState(isStravaConnected());
+  const [stravaActivity, setStravaActivity] = useState<StravaActivity | null>(null);
+  const [hrData, setHrData] = useState<{ time: number, heartrate: number }[] | null>(null);
+  const [isFetchingStrava, setIsFetchingStrava] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    if (stravaConnected && workout.startTime) {
+      const fetchStravaData = async () => {
+        setIsFetchingStrava(true);
+        try {
+          const workoutStart = new Date(workout.startTime!).getTime() / 1000;
+          const after = Math.floor(workoutStart - 14400); // -4 hours
+          const before = Math.floor(workoutStart + 14400); // +4 hours
+
+          const activities = await getActivities(after, before);
+
+          if (activities && activities.length > 0) {
+            const closest = activities.sort((a: any, b: any) => {
+              const diffA = Math.abs((new Date(a.start_date).getTime() / 1000) - workoutStart);
+              const diffB = Math.abs((new Date(b.start_date).getTime() / 1000) - workoutStart);
+              return diffA - diffB;
+            })[0];
+
+            setStravaActivity(closest);
+
+            const streams = await getActivityStreams(closest.id);
+            if (streams) {
+              const timeStream = streams.find((s: any) => s.type === 'time')?.data;
+              const hrStream = streams.find((s: any) => s.type === 'heartrate')?.data;
+
+              if (timeStream && hrStream) {
+                const combined = timeStream.map((t: number, i: number) => ({
+                  time: t,
+                  heartrate: hrStream[i]
+                }));
+                setHrData(combined);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch Strava data", error);
+        } finally {
+          setIsFetchingStrava(false);
+        }
+      };
+      fetchStravaData();
+    }
+  }, [stravaConnected, workout]);
+
+  const getHRStatsForExercise = (exerciseIndex: number) => {
+    if (!workout.startTime || !stravaActivity || !hrData) return null;
+
+    const activityStart = new Date(stravaActivity.start_date).getTime();
+
+    let startTime = workout.startTime;
+    if (exerciseIndex > 0) {
+      for (let i = exerciseIndex - 1; i >= 0; i--) {
+        const sets = workout.ovelser[i].sett;
+        const lastCompleted = sets.filter(s => s.completed && s.completedAt).pop();
+        if (lastCompleted && lastCompleted.completedAt) {
+          startTime = lastCompleted.completedAt;
+          break;
+        }
+      }
+    }
+
+    const currentSets = workout.ovelser[exerciseIndex].sett;
+    const lastSet = currentSets.filter(s => s.completed && s.completedAt).pop();
+
+    if (!lastSet || !lastSet.completedAt) return null;
+
+    const startSeconds = (new Date(startTime).getTime() - activityStart) / 1000;
+    const endSeconds = (new Date(lastSet.completedAt).getTime() - activityStart) / 1000;
+
+    const slice = hrData.filter(d => d.time >= startSeconds && d.time <= endSeconds);
+    if (slice.length === 0) return null;
+
+    const avg = Math.round(slice.reduce((acc, curr) => acc + curr.heartrate, 0) / slice.length);
+    const max = Math.max(...slice.map(d => d.heartrate));
+
+    return { slice, avg, max };
+  };
+
+  const renderHeartRateGraph = (data: { time: number, heartrate: number }[]) => {
+    if (data.length < 2) return null;
+    const width = 100;
+    const height = 40;
+
+    const minHR = Math.min(...data.map(d => d.heartrate));
+    const maxHR = Math.max(...data.map(d => d.heartrate));
+    const hrRange = maxHR - minHR || 1;
+
+    const startTime = data[0].time;
+    const timeRange = data[data.length - 1].time - startTime || 1;
+
+    const points = data.map(d => {
+      const x = ((d.time - startTime) / timeRange) * width;
+      const y = height - ((d.heartrate - minHR) / hrRange) * height;
+      return `${x},${y}`;
+    }).join(' ');
+
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12 overflow-visible">
+        <polyline
+          fill="none"
+          stroke="#FC4C02"
+          strokeWidth="2"
+          points={points}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40 relative">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('history')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Øktdetaljer</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-6 mt-2">
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 text-center">
+          <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic mb-2">{workout.navn}</h2>
+          <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">{workout.dato}</p>
+
+          {stravaConnected && (
+            <div className="mt-4 flex flex-col items-center">
+              {isFetchingStrava ? (
+                <div className="flex items-center gap-2 text-slate-400 font-bold text-xs uppercase tracking-wider animate-pulse">
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+                  Ser etter Strava-økt...
+                </div>
+              ) : stravaActivity ? (
+                <a
+                  href={`https://www.strava.com/activities/${stravaActivity.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 text-[#FC4C02] font-black text-xs uppercase tracking-wider bg-[#FC4C02]/10 px-3 py-1 rounded-full hover:bg-[#FC4C02]/20 transition-colors"
+                >
+                  <Icons.Activity className="w-3 h-3" />
+                  Synkronisert med Strava
+                </a>
+              ) : (
+                <div className="flex items-center gap-2 text-slate-300 font-bold text-xs uppercase tracking-wider">
+                  <Icons.Activity className="w-3 h-3" />
+                  Ingen Strava-økt funnet
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          {workout.ovelser.map((ex, i) => (
+            <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100/50">
+              <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter italic mb-4 pl-4 border-l-4 border-indigo-500">{ex.navn}</h3>
+              <div className="space-y-2">
+                {ex.sett.map((set, sIdx) => (
+                  <div key={sIdx} className="flex justify-between items-center px-4 py-2 bg-slate-50 rounded-xl">
+                    <span className="font-bold text-slate-400 text-xs uppercase tracking-wider">Sett {sIdx + 1}</span>
+                    <div className="flex gap-4">
+                      <span className="font-black text-slate-700">{set.kg} <span className="text-[10px] text-slate-400 font-bold">KG</span></span>
+                      <span className="font-black text-slate-700">{set.reps} <span className="text-[10px] text-slate-400 font-bold">REPS</span></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {(() => {
+                const stats = getHRStatsForExercise(i);
+                if (stats) {
+                  return (
+                    <div className="mt-4 pt-4 border-t border-slate-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-6 h-6 bg-[#FC4C02]/10 rounded-lg flex items-center justify-center text-[#FC4C02]">
+                          <Icons.Activity className="w-4 h-4" />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Puls</span>
+                        <span className="text-xs font-black text-slate-700 ml-auto">{stats.avg} AVG / {stats.max} MAX</span>
+                      </div>
+                      {renderHeartRateGraph(stats.slice)}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-4 mt-8">
+          <button
+            onClick={() => onEdit(workout)}
+            className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-6 rounded-full shadow-xl shadow-slate-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-lg uppercase tracking-wider"
+          >
+            <Icons.Pencil className="w-5 h-5" />
+            Rediger Økt
+          </button>
+
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-20 bg-red-50 hover:bg-red-100 text-red-500 font-bold rounded-full transition-all active:scale-95 flex items-center justify-center border border-red-100"
+          >
+            <Icons.Trash2 className="w-6 h-6" />
+          </button>
+        </div>
+      </main>
+
+      {/* Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2">
+                <Icons.Trash2 className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Slette treningsøkt?</h3>
+              <p className="text-slate-500 font-medium">
+                Er du sikker på at du vil slette <span className="text-slate-800 font-bold">{workout.navn}</span>?
+                <br />Denne handlingen kan ikke angres.
+              </p>
+
+              <div className="flex gap-3 w-full mt-4">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-4 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors uppercase tracking-wider text-sm"
+                >
+                  Avbryt
+                </button>
+                <button
+                  onClick={() => {
+                    onDelete(workout.id);
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="flex-1 py-4 font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors uppercase tracking-wider text-sm shadow-lg shadow-red-200"
+                >
+                  Slett
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SettingsViewProps {
+  onNavigate: (view: any) => void;
+  userEmail: string | undefined;
+  onSignOut: () => void;
+}
+
+function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewProps) {
+  const [stravaConnected, setStravaConnected] = useState(isStravaConnected());
+
+  const handleConnectStrava = () => {
+    const clientId = import.meta.env.VITE_STRAVA_CLIENT_ID;
+    // Dynamic redirect URI based on current origin (works for localhost and Netlify)
+    const redirectUri = window.location.origin;
+    const scope = "activity:read_all,activity:write";
+    window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=${scope}`;
+  };
+
+  const handleDisconnectStrava = () => {
+    disconnectStrava();
+    setStravaConnected(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('home')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Innstillinger</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
+        <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 space-y-6">
+          <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest ml-1">Konto</h2>
+          <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xl uppercase">
+              {userEmail?.charAt(0) || 'U'}
+            </div>
+            <div className="overflow-hidden">
+              <p className="font-bold text-slate-900 truncate">{userEmail}</p>
+              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Logget inn</p>
+            </div>
+          </div>
+
+          <button
+            onClick={onSignOut}
+            className="w-full py-4 bg-red-50 text-red-500 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 transition-colors uppercase tracking-wider text-sm"
+          >
+            <Icons.LogOut className="w-5 h-5" />
+            Logg ut
+          </button>
+        </div>
+
+        <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 space-y-6">
+          <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest ml-1">Integrasjoner</h2>
+
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-[#FC4C02]/10 rounded-xl flex items-center justify-center text-[#FC4C02]">
+                <Icons.Activity className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-lg italic">STRAVA</h3>
+                <p className="text-xs text-slate-400 font-medium">Synkroniser økter automatisk</p>
+              </div>
+            </div>
+
+            {stravaConnected ? (
+              <button
+                onClick={handleDisconnectStrava}
+                className="w-full py-3 bg-slate-200 text-slate-500 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-slate-300 transition-colors uppercase tracking-wider text-xs"
+              >
+                <Icons.Unlink className="w-4 h-4" />
+                Koble fra Strava
+              </button>
+            ) : (
+              <button
+                onClick={handleConnectStrava}
+                className="w-full py-3 bg-[#FC4C02] text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-[#E34402] transition-colors uppercase tracking-wider text-xs shadow-lg shadow-[#FC4C02]/20"
+              >
+                <Icons.Activity className="w-4 h-4" />
+                Koble til Strava
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 space-y-6">
+          <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest ml-1">Om Appen</h2>
+          <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+              <Icons.Info className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900">BulkBro v1.0</p>
+              <p className="text-xs text-slate-400 font-medium">Utviklet av Stian Berg</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+// --- VIEW COMPONENTS END ---
 
 // Simple types for legacy function calls/params
 type ViewState = 'home' | 'active' | 'history' | 'settings' | 'new_workout' | 'select_program' | 'create_program' | 'edit_program_form' | 'exercise_library' | 'create_exercise' | 'select_exercise' | 'workout_details';
@@ -124,9 +1376,14 @@ export default function App() {
           />
         ) : <HomeView onNavigate={handleNavigate} workoutHistory={workoutHistory} />;
 
+
       case 'settings':
         return (
-          <SettingsView />
+          <SettingsView
+            onNavigate={handleNavigate}
+            userEmail={user?.email}
+            onSignOut={() => supabase.auth.signOut()}
+          />
         );
 
       case 'select_program':
@@ -246,7 +1503,7 @@ export default function App() {
               onClick={() => setView('home')}
               className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'home' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              <Dumbbell className={`w-6 h-6 mb-1 ${view === 'home' ? 'fill-current' : ''}`} />
+              <Icons.Dumbbell className={`w-6 h-6 mb-1 ${view === 'home' ? 'fill-current' : ''}`} />
               <span className="text-[10px] font-medium">Trening</span>
             </button>
 
@@ -254,7 +1511,7 @@ export default function App() {
               onClick={() => setView('history')}
               className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'history' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              <Calendar className={`w-6 h-6 mb-1 ${view === 'history' ? 'fill-current' : ''}`} />
+              <Icons.History className={`w-6 h-6 mb-1 ${view === 'history' ? 'fill-current' : ''}`} />
               <span className="text-[10px] font-medium">Historikk</span>
             </button>
 
@@ -262,7 +1519,7 @@ export default function App() {
               onClick={() => setView('settings')}
               className={`flex flex-col items-center justify-center w-16 h-full transition-all duration-200 ${view === 'settings' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              <Settings className={`w-6 h-6 mb-1 ${view === 'settings' ? 'fill-current' : ''}`} />
+              <Icons.Settings className={`w-6 h-6 mb-1 ${view === 'settings' ? 'fill-current' : ''}`} />
               <span className="text-[10px] font-medium">Innstillinger</span>
             </button>
           </div>
