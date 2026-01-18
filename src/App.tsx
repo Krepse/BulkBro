@@ -3,7 +3,17 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
 import { useMantra } from './hooks/useMantra';
-import { isStravaConnected, disconnectStrava, getActivities, getActivityStreams, exchangeToken, getRecentActivities, calculateRecoveryStatus, type StravaActivity } from './services/strava';
+import {
+  isStravaConnected,
+  disconnectStrava,
+  getActivityStreams,
+  exchangeToken,
+  getRecentActivities,
+  calculateRecoveryStatus,
+  findOverlappingActivity,
+  calculateDetailedStats,
+  type ExerciseStats
+} from './services/strava';
 import type { Exercise, Okt, Program, ExerciseType } from './types';
 import { Button } from './components/ui/Button';
 import { Icons } from './components/ui/Icons';
@@ -227,7 +237,7 @@ interface ActiveWorkoutViewProps {
   onFinish: () => void;
   onNavigate: (view: any) => void;
   onRemoveExercise: (id: string | number) => void;
-  onUpdateSet: (exIdx: number, setIdx: number, field: 'kg' | 'reps', value: string) => void;
+  onUpdateSet: (exIdx: number, setIdx: number, field: any, value: any) => void;
   onToggleSet: (exIdx: number, setIdx: number) => void;
   onAddSet: (exIdx: number) => void;
   onAddExercise: () => void;
@@ -287,69 +297,91 @@ function ActiveWorkoutView({
             </div>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-12 gap-3 px-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">
-                <div className="col-span-2 flex justify-center">#</div>
-                {ex.type !== 'Egenvekt' && <div className="col-span-4 text-center">KG</div>}
-                <div className={`${ex.type === 'Egenvekt' ? 'col-span-8' : 'col-span-4'} text-center`}>REPS</div>
-                <div className="col-span-2 text-center">OK</div>
-              </div>
+              {ex.type !== 'Oppvarming' && (
+                <div className="grid grid-cols-12 gap-3 px-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.1em]">
+                  <div className="col-span-2 flex justify-center">#</div>
+                  {ex.type !== 'Egenvekt' && <div className="col-span-4 text-center">KG</div>}
+                  <div className={`${ex.type === 'Egenvekt' ? 'col-span-8' : 'col-span-4'} text-center`}>REPS</div>
+                  <div className="col-span-2 text-center">OK</div>
+                </div>
+              )}
 
               {ex.sett.map((set, sIdx) => (
                 <div
                   key={set.id}
                   className={`grid grid-cols-12 gap-3 items-center transition-all duration-300 ${set.completed ? 'opacity-50 grayscale-[0.5]' : ''}`}
                 >
-                  <div className="col-span-2 flex justify-center">
-                    <div className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-400 font-bold text-sm">
-                      {sIdx + 1}
-                    </div>
-                  </div>
-
-                  {ex.type !== 'Egenvekt' && (
-                    <div className="col-span-4 relative">
-                      <input
-                        type="number"
-                        value={set.kg}
-                        onChange={(e) => onUpdateSet(exIdx, sIdx, 'kg', e.target.value)}
-                        className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all placeholder-transparent"
-                      />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">KG</span>
+                  {ex.type !== 'Oppvarming' && (
+                    <div className="col-span-2 flex justify-center">
+                      <div className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-400 font-bold text-sm">
+                        {sIdx + 1}
+                      </div>
                     </div>
                   )}
 
-                  <div className={`${ex.type === 'Egenvekt' ? 'col-span-8' : 'col-span-4'} relative`}>
-                    <input
-                      type="number"
-                      value={set.reps}
-                      onChange={(e) => onUpdateSet(exIdx, sIdx, 'reps', e.target.value)}
-                      className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">REPS</span>
-                  </div>
+                  {ex.type === 'Oppvarming' ? (
+                    <div className="col-span-12 flex items-center justify-center py-4">
+                      <Stopwatch
+                        startTime={set.startTime}
+                        completedAt={set.completedAt}
+                        isRunning={!!set.startTime && !set.completed}
+                        onStart={() => onUpdateSet(exIdx, sIdx, 'startTime', new Date().toISOString())}
+                        onStop={() => onUpdateSet(exIdx, sIdx, 'completedAt', new Date().toISOString())}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {ex.type !== 'Egenvekt' && (
+                        <div className="col-span-4 relative">
+                          <input
+                            type="number"
+                            value={set.kg}
+                            onChange={(e) => onUpdateSet(exIdx, sIdx, 'kg', e.target.value)}
+                            className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all placeholder-transparent"
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">KG</span>
+                        </div>
+                      )}
+
+                      <div className={`${ex.type === 'Egenvekt' ? 'col-span-8' : 'col-span-4'} relative`}>
+                        <input
+                          type="number"
+                          value={set.reps}
+                          onChange={(e) => onUpdateSet(exIdx, sIdx, 'reps', e.target.value)}
+                          className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">REPS</span>
+                      </div>
+                    </>
+                  )}
 
                   <div className="col-span-2 flex justify-center">
-                    <button
-                      onClick={() => onToggleSet(exIdx, sIdx)}
-                      className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${set.completed
-                        ? 'bg-green-500 text-white shadow-lg shadow-green-200'
-                        : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
-                        }`}
-                    >
-                      <Icons.Check className="w-6 h-6" />
-                    </button>
+                    {ex.type !== 'Oppvarming' && (
+                      <button
+                        onClick={() => onToggleSet(exIdx, sIdx)}
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${set.completed
+                          ? 'bg-green-500 text-white shadow-lg shadow-green-200'
+                          : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                          }`}
+                      >
+                        <Icons.Check className="w-6 h-6" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
 
-            <Button
-              onClick={() => onAddSet(exIdx)}
-              variant="secondary"
-              className="mt-8 w-full border-dashed border-slate-200 text-slate-400 font-bold text-xs hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50"
-              size="md"
-            >
-              <Icons.Plus className="w-4 h-4" /> Legg til sett
-            </Button>
+            {ex.type !== 'Oppvarming' && (
+              <Button
+                onClick={() => onAddSet(exIdx)}
+                variant="secondary"
+                className="mt-8 w-full border-dashed border-slate-200 text-slate-400 font-bold text-xs hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50"
+                size="md"
+              >
+                <Icons.Plus className="w-4 h-4" /> Legg til sett
+              </Button>
+            )}
           </div>
         ))}
 
@@ -748,6 +780,86 @@ function ProgramFormView({
   );
 }
 
+interface ExerciseStatsViewProps {
+  onNavigate: (view: any) => void;
+  exerciseName: string;
+  stats: {
+    date: string;
+    estimated1RM: number;
+    maxWeight: number;
+    totalVolume: number;
+  }[];
+}
+
+function ExerciseStatsView({
+  onNavigate,
+  exerciseName,
+  stats
+}: ExerciseStatsViewProps) {
+  return (
+    <div className="min-h-screen bg-slate-50 pb-40">
+      <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
+        <button
+          onClick={() => onNavigate('exercise_library')}
+          className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <Icons.ChevronLeft className="w-8 h-8" />
+        </button>
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">Statistikk</h1>
+      </header>
+
+      <main className="max-w-xl mx-auto p-6 space-y-8 mt-2">
+        <div className="flex items-center gap-4">
+          <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter italic">{exerciseName}</h2>
+        </div>
+
+        {/* Highlight Cards */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Beste 1RM (Est)</p>
+            <p className="text-3xl font-black text-indigo-600 italic">
+              {Math.max(...stats.map(s => s.estimated1RM), 0)} <span className="text-sm text-slate-400 not-italic">kg</span>
+            </p>
+          </div>
+          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Tyngste Løft</p>
+            <p className="text-3xl font-black text-emerald-600 italic">
+              {Math.max(...stats.map(s => s.maxWeight), 0)} <span className="text-sm text-slate-400 not-italic">kg</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Strength Chart */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-black text-lg text-slate-800 uppercase tracking-tighter italic">Styrkeutvikling</h3>
+            <div className="flex gap-2 text-[10px] font-bold uppercase tracking-wider">
+              <span className="flex items-center gap-1 text-indigo-500"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> 1RM</span>
+            </div>
+          </div>
+          <div className="h-48 w-full">
+            <LineChart
+              data={stats.map(s => ({ label: s.date, value: s.estimated1RM }))}
+              color="#6366f1"
+            />
+          </div>
+        </div>
+
+        {/* Volume Chart */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+          <h3 className="font-black text-lg text-slate-800 uppercase tracking-tighter italic mb-6">Volum (Total Kg)</h3>
+          <div className="h-48 w-full">
+            <BarChart
+              data={stats.map(s => ({ label: s.date, value: s.totalVolume }))}
+              color="#10b981"
+            />
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 interface ProgramsViewProps {
   programs: Program[];
   onNavigate: (view: any) => void;
@@ -763,6 +875,8 @@ function ProgramsView({
   onEditProgram,
   onDeleteProgram
 }: ProgramsViewProps) {
+  const [programToDelete, setProgramToDelete] = useState<number | null>(null);
+
   return (
     <div className="min-h-screen bg-slate-50 pb-40">
       <header className="bg-white px-6 py-6 shadow-sm border-b border-slate-100 flex items-center gap-4 sticky top-0 z-50">
@@ -805,7 +919,7 @@ function ProgramsView({
                   <button onClick={() => onEditProgram(program)} className="text-slate-200 hover:text-indigo-500 transition-colors p-2">
                     <Icons.Pencil className="w-5 h-5" />
                   </button>
-                  <button onClick={() => onDeleteProgram(program.id)} className="text-slate-200 hover:text-red-400 transition-colors p-2">
+                  <button onClick={() => setProgramToDelete(program.id)} className="text-slate-200 hover:text-red-400 transition-colors p-2">
                     <Icons.Trash2 className="w-5 h-5" />
                   </button>
                 </div>
@@ -823,6 +937,41 @@ function ProgramsView({
           ))
         )}
       </main>
+
+      {/* CONFIRM DELETE MODAL */}
+      {programToDelete !== null && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl space-y-6">
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Icons.Trash2 className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 italic uppercase tracking-tighter">Slette program?</h3>
+              <p className="text-slate-500">Er du sikker på at du vil slette dette programmet? Dette kan ikke angres.</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setProgramToDelete(null)}
+                className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={() => {
+                  if (programToDelete !== null) {
+                    onDeleteProgram(programToDelete);
+                    setProgramToDelete(null);
+                  }
+                }}
+                className="px-4 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors"
+              >
+                Slett
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -833,6 +982,7 @@ interface ExerciseLibraryViewProps {
   onDeleteExercise: (id: string) => void;
   onEditExercise: (ex: Exercise) => void;
   onCreateExercise: () => void;
+  onViewStats?: (exerciseName: string) => void;
 }
 
 function ExerciseLibraryView({
@@ -840,7 +990,8 @@ function ExerciseLibraryView({
   customExercises,
   onDeleteExercise,
   onEditExercise,
-  onCreateExercise
+  onCreateExercise,
+  onViewStats
 }: ExerciseLibraryViewProps) {
   const [search, setSearch] = useState('');
 
@@ -865,6 +1016,7 @@ function ExerciseLibraryView({
           onDelete={onDeleteExercise}
           onEdit={onEditExercise}
           onCreate={onCreateExercise}
+          onViewStats={onViewStats}
         />
       </main>
     </div>
@@ -1013,42 +1165,45 @@ interface WorkoutDetailsViewProps {
 
 function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDetailsViewProps) {
   const [stravaConnected] = useState(isStravaConnected());
-  const [stravaActivity, setStravaActivity] = useState<StravaActivity | null>(null);
-  const [hrData, setHrData] = useState<{ time: number, heartrate: number }[] | null>(null);
+  const [stravaActivity, setStravaActivity] = useState<any | null>(null);
+  const [exerciseStats, setExerciseStats] = useState<Record<string, ExerciseStats> | null>(null);
+  const [setStats, setSetStats] = useState<Record<string, { avgHr: number, maxHr: number }> | null>(null);
+  const [workoutStats, setWorkoutStats] = useState<{ calories: number, intensity: number, hrSeries?: number[] } | null>(null);
   const [isFetchingStrava, setIsFetchingStrava] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
+    // Only fetch if we have a valid start time and end time (or infer end time)
+    // For now, if we don't have explicit end time, we can't find overlap accurately, 
+    // but findOverlappingActivity handles fuzzy matching if needed or we assume workout length.
+    // Ideally Okt should have endTime. If not, we use startTime + 2 hours window?
+    // Let's assume valid start time.
     if (stravaConnected && workout.startTime) {
       const fetchStravaData = async () => {
         setIsFetchingStrava(true);
         try {
-          const workoutStart = new Date(workout.startTime!).getTime() / 1000;
-          const after = Math.floor(workoutStart - 14400); // -4 hours
-          const before = Math.floor(workoutStart + 14400); // +4 hours
+          // If workout has no endTime, assume 90 mins for search window
+          const endTime = workout.endTime || new Date(new Date(workout.startTime!).getTime() + 90 * 60000).toISOString();
 
-          const activities = await getActivities(after, before);
+          const activity = await findOverlappingActivity(workout.startTime!, endTime);
 
-          if (activities && activities.length > 0) {
-            const closest = activities.sort((a: any, b: any) => {
-              const diffA = Math.abs((new Date(a.start_date).getTime() / 1000) - workoutStart);
-              const diffB = Math.abs((new Date(b.start_date).getTime() / 1000) - workoutStart);
-              return diffA - diffB;
-            })[0];
-
-            setStravaActivity(closest);
-
-            const streams = await getActivityStreams(closest.id);
+          if (activity) {
+            setStravaActivity(activity);
+            const streams = await getActivityStreams(activity.id);
             if (streams) {
-              const timeStream = streams.find((s: any) => s.type === 'time')?.data;
-              const hrStream = streams.find((s: any) => s.type === 'heartrate')?.data;
+              // Convert streams array to object map if needed by calculateDetailedStats?
+              // calculateDetailedStats expects { time: {data:[]}, heartrate: {data:[]} }
+              // verify getActivityStreams return format.
+              // usually it returns array of objects [{type: 'time', data: ...}, ...]
 
-              if (timeStream && hrStream) {
-                const combined = timeStream.map((t: number, i: number) => ({
-                  time: t,
-                  heartrate: hrStream[i]
-                }));
-                setHrData(combined);
+              const streamMap: any = {};
+              streams.forEach((s: any) => { streamMap[s.type] = s; });
+
+              const stats = calculateDetailedStats(workout, activity, streamMap);
+              if (stats) {
+                setExerciseStats(stats.exerciseStats);
+                setSetStats(stats.setStats);
+                setWorkoutStats(stats.workoutStats);
               }
             }
           }
@@ -1062,71 +1217,7 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDe
     }
   }, [stravaConnected, workout]);
 
-  const getHRStatsForExercise = (exerciseIndex: number) => {
-    if (!workout.startTime || !stravaActivity || !hrData) return null;
 
-    const activityStart = new Date(stravaActivity.start_date).getTime();
-
-    let startTime = workout.startTime;
-    if (exerciseIndex > 0) {
-      for (let i = exerciseIndex - 1; i >= 0; i--) {
-        const sets = workout.ovelser[i].sett;
-        const lastCompleted = sets.filter(s => s.completed && s.completedAt).pop();
-        if (lastCompleted && lastCompleted.completedAt) {
-          startTime = lastCompleted.completedAt;
-          break;
-        }
-      }
-    }
-
-    const currentSets = workout.ovelser[exerciseIndex].sett;
-    const lastSet = currentSets.filter(s => s.completed && s.completedAt).pop();
-
-    if (!lastSet || !lastSet.completedAt) return null;
-
-    const startSeconds = (new Date(startTime).getTime() - activityStart) / 1000;
-    const endSeconds = (new Date(lastSet.completedAt).getTime() - activityStart) / 1000;
-
-    const slice = hrData.filter(d => d.time >= startSeconds && d.time <= endSeconds);
-    if (slice.length === 0) return null;
-
-    const avg = Math.round(slice.reduce((acc, curr) => acc + curr.heartrate, 0) / slice.length);
-    const max = Math.max(...slice.map(d => d.heartrate));
-
-    return { slice, avg, max };
-  };
-
-  const renderHeartRateGraph = (data: { time: number, heartrate: number }[]) => {
-    if (data.length < 2) return null;
-    const width = 100;
-    const height = 40;
-
-    const minHR = Math.min(...data.map(d => d.heartrate));
-    const maxHR = Math.max(...data.map(d => d.heartrate));
-    const hrRange = maxHR - minHR || 1;
-
-    const startTime = data[0].time;
-    const timeRange = data[data.length - 1].time - startTime || 1;
-
-    const points = data.map(d => {
-      const x = ((d.time - startTime) / timeRange) * width;
-      const y = height - ((d.heartrate - minHR) / hrRange) * height;
-      return `${x},${y}`;
-    }).join(' ');
-
-    return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12 overflow-visible">
-        <polyline
-          fill="none"
-          stroke="#FC4C02"
-          strokeWidth="2"
-          points={points}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-slate-50 pb-40 relative">
@@ -1180,35 +1271,89 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDe
                 {ex.sett.map((set, sIdx) => (
                   <div key={sIdx} className="flex justify-between items-center px-4 py-2 bg-slate-50 rounded-xl">
                     <span className="font-bold text-slate-400 text-xs uppercase tracking-wider">Sett {sIdx + 1}</span>
-                    <div className="flex gap-4">
-                      <span className="font-black text-slate-700">{set.kg} <span className="text-[10px] text-slate-400 font-bold">KG</span></span>
-                      <span className="font-black text-slate-700">{set.reps} <span className="text-[10px] text-slate-400 font-bold">REPS</span></span>
+
+                    {/* HR Stats Column if Strava connected (Placed LEFT of data now) */}
+
+
+                    {ex.type === 'Oppvarming' ? (
+                      <div className="flex gap-4 items-center flex-1 justify-end">
+                        <span className="font-black text-slate-700">
+                          {(() => {
+                            if (!set.startTime || !set.completedAt) return "00:00";
+                            const diff = new Date(set.completedAt).getTime() - new Date(set.startTime).getTime();
+                            if (diff < 0) return "00:00";
+                            const mins = Math.floor(diff / 60000);
+                            const secs = Math.floor((diff % 60000) / 1000);
+                            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                          })()}
+                          <span className="text-[10px] text-slate-400 font-bold ml-1">TID</span>
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex gap-4 items-center flex-1 justify-end">
+                        <span className="font-black text-slate-700">{set.kg} <span className="text-[10px] text-slate-400 font-bold">KG</span></span>
+                        <span className="font-black text-slate-700">{set.reps} <span className="text-[10px] text-slate-400 font-bold">REPS</span></span>
+                      </div>
+                    )}
+
+                    {/* HR Stats Column if Strava connected (Placed RIGHT of data now) */}
+                    <div className="w-16 text-center ml-2">
+                      {setStats && setStats[set.id] ? (
+                        <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded-md whitespace-nowrap">
+                          ♥ {setStats[set.id].maxHr}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-300">-</span>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
 
-              {(() => {
-                const stats = getHRStatsForExercise(i);
-                if (stats) {
-                  return (
-                    <div className="mt-4 pt-4 border-t border-slate-100">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 bg-[#FC4C02]/10 rounded-lg flex items-center justify-center text-[#FC4C02]">
-                          <Icons.Activity className="w-4 h-4" />
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Puls</span>
-                        <span className="text-xs font-black text-slate-700 ml-auto">{stats.avg} AVG / {stats.max} MAX</span>
-                      </div>
-                      {renderHeartRateGraph(stats.slice)}
-                    </div>
-                  );
-                }
-                return null;
-              })()}
+              <div className="mt-4 pt-4 border-t border-slate-100 flex gap-3">
+
+                <span className="text-[10px] font-bold bg-red-50 text-red-500 px-2 py-1 rounded-md border border-red-100 uppercase tracking-wider flex items-center gap-1">
+                  <Icons.Activity className="w-3 h-3" /> Snitt: {(exerciseStats && exerciseStats[ex.id]) ? `${exerciseStats[ex.id].avgHr} bpm` : '-'}
+                </span>
+              </div>
             </div>
           ))}
         </div>
+
+        {/* Workout Summary Stats */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+          <div className="flex justify-between items-center text-center divide-x divide-slate-100">
+            <div className="flex-1 px-4">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Kalorier</p>
+              <p className="text-2xl font-black text-slate-800 italic">
+                {workoutStats ? `${workoutStats.calories} kcal` : '-'}
+              </p>
+            </div>
+            <div className="flex-1 px-4">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Intensitet</p>
+              <div className="flex items-center justify-center gap-1">
+                {workoutStats ? (
+                  [...Array(5)].map((_, i) => (
+                    <div key={i} className={`w-3 h-8 rounded-full ${i < workoutStats.intensity ? 'bg-indigo-500' : 'bg-slate-100'}`} />
+                  ))
+                ) : (
+                  <span className="text-2xl font-black text-slate-200 italic">-</span>
+                )}
+              </div>
+              {workoutStats && <p className="text-xs font-bold text-slate-400 mt-1">{workoutStats.intensity}/5</p>}
+            </div>
+          </div>
+        </div>
+
+        {/* Heart Rate Chart */}
+        {workoutStats?.hrSeries && workoutStats.hrSeries.length > 0 && (
+          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 mt-4">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 text-center">Pulsutvikling</p>
+            <div className="h-32 w-full">
+              <HeartRateChart data={workoutStats.hrSeries} color="#ef4444" />
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-4 mt-8">
           <button
@@ -1373,14 +1518,198 @@ function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewProps) {
     </div>
   );
 }
+// --- HELPER COMPONENTS ---
+function Stopwatch({ startTime, completedAt, isRunning, onStart, onStop }: { startTime?: string, completedAt?: string, isRunning: boolean, onStart: () => void, onStop: () => void }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    let interval: any;
+    if (isRunning && startTime) {
+      // Update immediately
+      const start = new Date(startTime).getTime();
+      setElapsed(Date.now() - start);
+
+      interval = setInterval(() => {
+        setElapsed(Date.now() - start);
+      }, 1000);
+    } else if (completedAt && startTime) {
+      // Finished state
+      const start = new Date(startTime).getTime();
+      const end = new Date(completedAt).getTime();
+      setElapsed(end - start);
+    } else {
+      setElapsed(0);
+    }
+    return () => clearInterval(interval);
+  }, [isRunning, startTime, completedAt]);
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="text-4xl font-black text-slate-700 italic tabular-nums tracking-widest w-32 text-center">
+        {formatTime(elapsed)}
+      </div>
+      <div className="flex gap-2">
+        {!isRunning && !completedAt && (
+          <button onClick={onStart} className="px-6 py-2 bg-green-500 text-white font-bold rounded-xl shadow-lg shadow-green-200 active:scale-95 transition-all">
+            START
+          </button>
+        )}
+        {isRunning && (
+          <button onClick={onStop} className="px-6 py-2 bg-red-500 text-white font-bold rounded-xl shadow-lg shadow-red-200 active:scale-95 transition-all">
+            STOPP
+          </button>
+        )}
+        {completedAt && (
+          <button onClick={onStart} className="px-6 py-2 bg-slate-200 text-slate-500 font-bold rounded-xl active:scale-95 transition-all">
+            RESTART
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- VIEW COMPONENTS END ---
 
 // Simple types for legacy function calls/params
-type ViewState = 'home' | 'active' | 'history' | 'settings' | 'new_workout' | 'select_program' | 'create_program' | 'edit_program_form' | 'exercise_library' | 'create_exercise' | 'select_exercise' | 'workout_details' | 'programs';
+type ViewState = 'home' | 'active' | 'history' | 'settings' | 'new_workout' | 'select_program' | 'create_program' | 'edit_program_form' | 'exercise_library' | 'create_exercise' | 'select_exercise' | 'workout_details' | 'programs' | 'exercise_stats';
 
 
 
 // ... (existing imports)
+
+interface HeartRateChartProps {
+  data: number[];
+  color?: string;
+}
+
+function HeartRateChart({ data, color = "#6366f1" }: HeartRateChartProps) {
+  if (!data || data.length === 0) return null;
+
+  // Sampling to reduce DOM nodes if too many points (e.g. > 200)
+  const MAX_POINTS = 200;
+  const step = Math.ceil(data.length / MAX_POINTS);
+  const sampledData = data.filter((_, i) => i % step === 0);
+
+  const maxVal = Math.max(...sampledData);
+  const minVal = Math.min(...sampledData);
+  const range = maxVal - minVal || 1;
+
+  // SVG scaling
+  const points = sampledData.map((val, i) => {
+    const x = (i / (sampledData.length - 1)) * 100;
+    const y = 100 - ((val - minVal) / range) * 80 - 10; // keep padding
+    return `${x},${y}`;
+  }).join(' ');
+
+  const fillPolygon = `0,100 ${points} 100,100`;
+
+  return (
+    <div className="w-full h-full relative">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+        <defs>
+          <linearGradient id="hrGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.4" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon points={fillPolygon} fill="url(#hrGradient)" />
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div className="absolute top-0 right-0 text-[10px] font-bold text-slate-300">Max: {maxVal}</div>
+      <div className="absolute bottom-0 right-0 text-[10px] font-bold text-slate-300">Min: {minVal}</div>
+    </div>
+  );
+}
+
+interface ChartDataPoint {
+  label: string;
+  value: number;
+  secondaryValue?: number;
+}
+
+function LineChart({ data, color = "#6366f1" }: { data: ChartDataPoint[], color?: string }) {
+  if (!data || data.length === 0) return <div className="text-slate-400 text-xs text-center p-4">Ingen data</div>;
+
+  const values = data.map(d => d.value);
+  const maxVal = Math.max(...values);
+  const minVal = Math.min(...values);
+  const range = (maxVal - minVal) || 1;
+  const paddedMax = maxVal + range * 0.1;
+  const paddedMin = Math.max(0, minVal - range * 0.1);
+  const finalRange = paddedMax - paddedMin || 1;
+
+  const points = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * 100;
+    const y = 100 - ((d.value - paddedMin) / finalRange) * 100;
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <div className="w-full h-full relative group">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+        <line x1="0" y1="25" x2="100" y2="25" stroke="#f1f5f9" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="#f1f5f9" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="#f1f5f9" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+
+        <polyline
+          points={points}
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          vectorEffect="non-scaling-stroke"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="drop-shadow-sm"
+        />
+      </svg>
+      <div className="absolute top-0 right-0 text-[10px] font-bold text-slate-400 bg-white/80 px-1 rounded">Max: {maxVal}</div>
+      <div className="absolute inset-x-0 bottom-0 h-8 flex items-end justify-between px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <span className="text-[10px] text-slate-400">{data[0].label}</span>
+        <span className="text-[10px] text-slate-400">{data[data.length - 1].label}</span>
+      </div>
+    </div>
+  );
+}
+
+function BarChart({ data, color = "#6366f1" }: { data: ChartDataPoint[], color?: string }) {
+  if (!data || data.length === 0) return <div className="text-slate-400 text-xs text-center p-4">Ingen data</div>;
+
+  const values = data.map(d => d.value);
+  const maxVal = Math.max(...values);
+
+  return (
+    <div className="w-full h-full flex items-end justify-between gap-1 pt-4">
+      {data.map((d, i) => {
+        const height = (d.value / maxVal) * 100;
+        return (
+          <div key={i} className="flex-1 flex flex-col justify-end group relative h-full">
+            <div
+              style={{ height: `${height}%`, backgroundColor: color }}
+              className="w-full rounded-t-sm opacity-80 hover:opacity-100 transition-all"
+            ></div>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-max">
+              <div className="bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg z-50">
+                {d.value}
+                <div className="text-[8px] font-normal opacity-70">{d.label}</div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  );
+}
+
+
+
 
 export default function App() {
   const {
@@ -1410,6 +1739,7 @@ export default function App() {
 
   // Ephemeral State
   const [selectedWorkout, setSelectedWorkout] = useState<Okt | null>(null);
+  const [exerciseName, setExerciseName] = useState<string>('');
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [editingProgram, setEditingProgram] = useState<Program | null>(null);
   const [draftProgramName, setDraftProgramName] = useState('');
@@ -1444,6 +1774,48 @@ export default function App() {
   if (!user) {
     return <AuthView />;
   }
+
+  // Calculate statistics for a specific exercise across all history
+  const getExerciseStats = (exerciseName: string) => {
+    const stats: { date: string; maxWeight: number; estimated1RM: number; totalVolume: number }[] = [];
+
+    // Sort history by date ascending
+    const sortedHistory = [...workoutHistory].sort((a, b) => new Date(a.dato).getTime() - new Date(b.dato).getTime());
+
+    sortedHistory.forEach(workout => {
+      const ex = workout.ovelser.find(e => e.navn === exerciseName);
+      if (ex && ex.sett) {
+        let maxWeight = 0;
+        let best1RM = 0;
+        let volume = 0;
+
+        ex.sett.forEach(s => {
+          if (s.kg > 0 && s.reps > 0) {
+            // Max Weight
+            if (s.kg > maxWeight) maxWeight = s.kg;
+
+            // Estimated 1RM (Epley formula)
+            const e1rm = s.kg * (1 + s.reps / 30);
+            if (e1rm > best1RM) best1RM = e1rm;
+
+            // Volume
+            volume += s.kg * s.reps;
+          }
+        });
+
+        if (maxWeight > 0) {
+          stats.push({
+            date: workout.dato, // Using the formatted string for now, could parse real date for chart x-axis
+            maxWeight,
+            estimated1RM: Math.round(best1RM),
+            totalVolume: volume
+          });
+        }
+      }
+    });
+
+    return stats;
+  };
 
   const handleNavigate = (target: any) => setView(target);
 
@@ -1599,6 +1971,20 @@ export default function App() {
             onDeleteExercise={deleteExercise}
             onEditExercise={(ex) => saveExercise(ex)}
             onCreateExercise={() => { setEditingExercise(null); setReturnView('exercise_library'); setView('create_exercise'); }}
+            onViewStats={(name) => {
+              setExerciseName(name); // Ensure state exists or use context
+              setView('exercise_stats');
+            }}
+          />
+        );
+
+      case 'exercise_stats':
+        // We need to pass the name. Assuming render uses 'exerciseName' state.
+        return (
+          <ExerciseStatsView
+            onNavigate={() => setView('exercise_library')}
+            stats={getExerciseStats(exerciseName)}
+            exerciseName={exerciseName}
           />
         );
 

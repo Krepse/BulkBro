@@ -1,12 +1,13 @@
 
-export type ExerciseType = 'Stang' | 'Manualer' | 'Kabel' | 'Egenvekt' | 'Maskin';
+export type ExerciseType = 'Stang' | 'Manualer' | 'Kabel' | 'Egenvekt' | 'Maskin' | 'Oppvarming';
 
 export interface Sett {
-  id: number;
+  id: number | string;
   kg: number;
   reps: number;
   completed: boolean;
-  completedAt?: string; // ISO timestamp
+  startTime?: string; // ISO timestamp (when set started/timer started)
+  completedAt?: string; // ISO timestamp (when set finished)
 }
 
 export interface Ovelse {
@@ -17,7 +18,7 @@ export interface Ovelse {
 }
 
 export interface Okt {
-  id: number;
+  id: number | string;
   navn: string;
   dato: string;
   startTime?: string; // ISO timestamp

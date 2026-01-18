@@ -63,12 +63,65 @@ export const exchangeToken = async (code: string): Promise<boolean> => {
     }
 };
 
-const getAccessToken = () => {
-    return localStorage.getItem('strava_access_token');
+// Utility to get token, refreshing if necessary
+export const getAccessToken = async (): Promise<string | null> => {
+    const token = localStorage.getItem('strava_access_token');
+    const expiresAt = localStorage.getItem('strava_expires_at');
+    const refreshToken = localStorage.getItem('strava_refresh_token');
+
+    if (!token || !expiresAt || !refreshToken) return null;
+
+    // Check if expired (or expiring in next 5 mins)
+    const now = Math.floor(Date.now() / 1000);
+    if (now >= parseInt(expiresAt) - 300) {
+        console.log("Strava token expired, refreshing...");
+        const refreshSuccess = await refreshAccessToken(refreshToken);
+        if (refreshSuccess) {
+            return localStorage.getItem('strava_access_token');
+        } else {
+            // If refresh fails, log out
+            disconnectStrava();
+            return null;
+        }
+    }
+
+    return token;
+};
+
+const refreshAccessToken = async (refreshToken: string): Promise<boolean> => {
+    const clientId = import.meta.env.VITE_STRAVA_CLIENT_ID;
+    const clientSecret = import.meta.env.VITE_STRAVA_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+        console.error("Missing Strava keys");
+        return false;
+    }
+
+    try {
+        const response = await fetch('https://www.strava.com/oauth/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_id: clientId,
+                client_secret: clientSecret,
+                refresh_token: refreshToken,
+                grant_type: 'refresh_token'
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to refresh token');
+
+        const data: StravaTokenResponse = await response.json();
+        saveTokens(data);
+        return true;
+    } catch (error) {
+        console.error("Error refreshing token:", error);
+        return false;
+    }
 };
 
 export const getActivities = async (after: number, before: number) => {
-    const token = getAccessToken();
+    const token = await getAccessToken(); // Now async
     if (!token) return [];
 
     try {
@@ -86,7 +139,7 @@ export const getActivities = async (after: number, before: number) => {
 };
 
 export const getActivityStreams = async (activityId: number) => {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) return null;
 
     try {
@@ -140,7 +193,7 @@ export const mapWorkoutToStravaPayload = (workout: any): StravaActivity => {
 };
 
 export const getRecentActivities = async (days: number = 7): Promise<any[]> => {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) return [];
 
     const after = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
@@ -178,4 +231,135 @@ export const calculateRecoveryStatus = (activities: any[]): 'JA' | 'OK' | 'NEI' 
     if (totalLoad > 600) return 'NEI';
     if (totalLoad > 300) return 'OK';
     return 'JA';
+};
+// Find an activity that overlaps with the workout window
+export const findOverlappingActivity = async (startTime: string, endTime: string): Promise<any | null> => {
+    const token = await getAccessToken();
+    if (!token) return null;
+
+    const start = new Date(startTime).getTime();
+    const end = new Date(endTime).getTime();
+
+    // Fetch activities from a bit before start to now
+    // convert to seconds
+    const after = Math.floor((start - 3600 * 1000) / 1000);
+    const before = Math.floor((end + 3600 * 1000) / 1000);
+
+    const activities = await getActivities(after, before);
+
+    // Find one that overlaps significantly
+    return activities.find((act: any) => {
+        const actStart = new Date(act.start_date).getTime();
+        const actEnd = actStart + (act.elapsed_time * 1000);
+
+        // Simple overlap check
+        return (start < actEnd && end > actStart);
+    });
+};
+
+// Export interfaces
+export interface ExerciseStats {
+    avgHr?: number;
+    maxHr?: number;
+    intensity?: number; // 0-5
+    calories?: number;
+}
+
+
+// Re-write to include activityStartDate
+export const calculateDetailedStats = (workout: any, activity: any, streams: any) => {
+    if (!streams || !streams.time || !streams.heartrate) return null;
+
+    const actStart = new Date(activity.start_date).getTime();
+    const timeStream = streams.time.data; // seconds offset
+    const hrStream = streams.heartrate.data;
+
+    const exerciseStats: Record<string, any> = {};
+    const setStats: Record<string, any> = {};
+
+    workout.ovelser.forEach((ex: any) => {
+        let exHrSum = 0;
+        let exHrCount = 0;
+        let exMaxHr = 0;
+
+        // Iterate sets to find time ranges
+        ex.sett.forEach((set: any) => {
+            if (set.startTime && set.completedAt) {
+                const sStart = new Date(set.startTime).getTime();
+                const sEnd = new Date(set.completedAt).getTime();
+
+                // Convert to activity-relative seconds
+                const relStart = (sStart - actStart) / 1000;
+                const relEnd = (sEnd - actStart) / 1000;
+
+                let setHrSum = 0;
+                let setHrCount = 0;
+                let setMax = 0;
+
+                for (let i = 0; i < timeStream.length; i++) {
+                    const t = timeStream[i];
+                    if (t >= relStart && t <= relEnd) {
+                        const hr = hrStream[i];
+                        setHrSum += hr;
+                        setHrCount++;
+                        if (hr > setMax) setMax = hr;
+                    }
+                    if (t > relEnd) break; // Optimized assumption: sorted
+                }
+
+                if (setHrCount > 0) {
+                    setStats[set.id] = {
+                        avgHr: Math.round(setHrSum / setHrCount),
+                        maxHr: setMax
+                    };
+
+                    exHrSum += setHrSum;
+                    exHrCount += setHrCount;
+                    if (setMax > exMaxHr) exMaxHr = setMax;
+                }
+            }
+        });
+
+        if (exHrCount > 0) {
+            exerciseStats[ex.id] = {
+                avgHr: Math.round(exHrSum / exHrCount),
+                maxHr: exMaxHr,
+                // Simple intensity calc: (Avg / 190) * 10 -> just 1-5 scale based on zones
+                intensity: calculateIntensity(Math.round(exHrSum / exHrCount))
+            };
+        }
+    });
+
+    // Calculate total workout stats
+    const totalCalories = activity.calories || 0;
+
+    // Calculate total intensity based on average intensity of exercises, or overall avg HR
+    // Let's use the activity's average heart rate for a global intensity score if available
+    let totalIntensity = 0;
+    if (activity.average_heartrate) {
+        totalIntensity = calculateIntensity(activity.average_heartrate);
+    } else {
+        // Fallback: Average of exercise intensities
+        const intensities = Object.values(exerciseStats).map(s => s.intensity);
+        if (intensities.length > 0) {
+            totalIntensity = Math.round(intensities.reduce((a, b) => a + b, 0) / intensities.length);
+        }
+    }
+
+    const workoutStats = {
+        calories: Math.round(totalCalories),
+        intensity: totalIntensity,
+        hrSeries: hrStream // Return full series for charting
+    };
+
+    return { exerciseStats, setStats, workoutStats };
+};
+
+const calculateIntensity = (hr: number) => {
+    // Very rough zones without user max HR
+    if (hr < 100) return 1;
+    if (hr < 120) return 2;
+    if (hr < 140) return 3;
+    if (hr < 160) return 4;
+    return 5;
 };

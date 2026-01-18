@@ -12,6 +12,7 @@ interface ExerciseListProps {
     onDelete?: (id: string) => void;
     onCreate: () => void;
     mode: 'library' | 'select';
+    onViewStats?: (exerciseName: string) => void;
 }
 
 export function ExerciseList({
@@ -22,7 +23,8 @@ export function ExerciseList({
     onEdit,
     onDelete,
     onCreate,
-    mode
+    mode,
+    onViewStats
 }: ExerciseListProps) {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -171,6 +173,17 @@ export function ExerciseList({
 
                                 {mode === 'library' ? (
                                     <div className="flex gap-2 relative z-10 items-center">
+                                        {/* Stats Button */}
+                                        {!isEditing && onViewStats && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); onViewStats(ex.name); }}
+                                                className="text-slate-300 hover:text-indigo-500 transition-colors p-2"
+                                                title="Se statistikk"
+                                            >
+                                                <Icons.Activity className="w-5 h-5" />
+                                            </button>
+                                        )}
+
                                         {isEditing ? (
                                             <>
                                                 <button onClick={(e) => saveEditing(e, ex)} className="w-10 h-10 flex items-center justify-center bg-green-100 text-green-600 rounded-full hover:bg-green-500 hover:text-white transition-colors">

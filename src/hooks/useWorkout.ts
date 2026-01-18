@@ -137,28 +137,71 @@ export function useWorkout() {
 
     // --- ACTIONS ---
 
-    const startNewWorkout = (program?: Program) => {
-        const nyOkt: Okt = {
-            id: Date.now(),
-            navn: program ? program.navn : 'Kveldsøkt',
-            dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-            startTime: new Date().toISOString(),
-            ovelser: program
-                ? program.ovelser.map(navn => {
-                    // Look up exercise to find its type
-                    const knownEx = customExercises.find(c => c.name === navn);
-                    const type: ExerciseType = knownEx ? knownEx.type : 'Stang'; // Default to Stang if unknown
+    // --- HELPERS ---
 
-                    return {
-                        id: Date.now() + Math.random(),
-                        navn: navn,
-                        type: type,
-                        sett: [{ id: Date.now() + Math.random(), kg: 20, reps: 10, completed: false }]
-                    };
-                })
-                : []
+    const getLastUsedSets = (exerciseName: string) => {
+        // Iterate through history (newest first) to find last occurrence
+        for (const workout of workoutHistory) {
+            const exercise = workout.ovelser.find(e => e.navn === exerciseName);
+            if (exercise && exercise.sett && exercise.sett.length > 0) {
+                // Map to new sets, preserving kg/reps but resetting status
+                return exercise.sett.map(s => ({
+                    id: crypto.randomUUID(), // New unique ID
+                    kg: s.kg,
+                    reps: s.reps,
+                    completed: false
+                }));
+            }
+        }
+        // Default fallback if no history found
+        return [{ id: crypto.randomUUID(), kg: 20, reps: 10, completed: false }];
+    };
+
+    const startNewWorkout = (program?: Program) => {
+        const warmUpExercise: Ovelse = {
+            id: crypto.randomUUID(),
+            navn: "Oppvarming",
+            type: "Oppvarming",
+            sett: [
+                { id: 1, kg: 0, reps: 0, completed: false }
+            ]
         };
-        setActiveWorkout(nyOkt);
+
+        if (program) {
+            const exercises: Ovelse[] = program.ovelser.map(navn => {
+                // Look up exercise to find its type
+                const knownEx = customExercises.find(c => c.name === navn);
+                const type: ExerciseType = knownEx ? knownEx.type : 'Stang'; // Default to Stang if unknown
+
+                return {
+                    id: crypto.randomUUID(),
+                    navn: navn,
+                    type: type,
+                    sett: getLastUsedSets(navn) // Use history or default
+                };
+            });
+
+            // Prepend Warm-up
+            exercises.unshift(warmUpExercise);
+
+            const nyOkt: Okt = {
+                id: Date.now(),
+                navn: program.navn,
+                dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                startTime: new Date().toISOString(),
+                ovelser: exercises
+            };
+            setActiveWorkout(nyOkt);
+        } else {
+            const nyOkt: Okt = {
+                id: Date.now(),
+                navn: 'Ny Økt',
+                dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                startTime: new Date().toISOString(),
+                ovelser: [warmUpExercise]
+            };
+            setActiveWorkout(nyOkt);
+        }
     };
 
     const addExercise = (navn: string, type: ExerciseType) => {
@@ -167,7 +210,7 @@ export function useWorkout() {
             id: Date.now(),
             navn: navn,
             type: type,
-            sett: [{ id: Date.now() + 1, kg: 20, reps: 10, completed: false }]
+            sett: getLastUsedSets(navn) // Use history or default
         };
         setActiveWorkout({
             ...activeWorkout,
@@ -183,11 +226,23 @@ export function useWorkout() {
         });
     };
 
-    const updateSet = (exIdx: number, setIdx: number, field: 'kg' | 'reps', value: string) => {
+    const updateSet = (exIdx: number, setIdx: number, field: string, value: any) => {
         if (!activeWorkout) return;
         const updatedOvelser = [...activeWorkout.ovelser];
-        const val = value === '' ? 0 : Number(value);
-        updatedOvelser[exIdx].sett[setIdx][field] = val;
+        const set = updatedOvelser[exIdx].sett[setIdx];
+
+        if (field === 'completedAt') {
+            // If setting completedAt, we also mark completed = true
+            updatedOvelser[exIdx].sett[setIdx] = { ...set, completedAt: value, completed: true };
+        } else if (field === 'startTime') {
+            // If setting startTime, ensure completed is false (restart)
+            updatedOvelser[exIdx].sett[setIdx] = { ...set, startTime: value, completed: false, completedAt: undefined };
+        } else {
+            // Standard update (kg/reps)
+            const val = value === '' ? 0 : Number(value);
+            updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: val };
+        }
+
         setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
     };
 
