@@ -243,6 +243,55 @@ interface ActiveWorkoutViewProps {
   onAddExercise: () => void;
 }
 
+// --- REST TIMER COMPONENT ---
+function RestTimerOverlay({ endTime, onEndRest, onAddTime }: { endTime: number, onEndRest: () => void, onAddTime: (sec: number) => void }) {
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const diff = endTime - Date.now();
+      if (diff <= 0) {
+        clearInterval(interval);
+        onEndRest(); // Auto-start next set
+      } else {
+        setTimeLeft(diff);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [endTime, onEndRest]);
+
+  const m = Math.floor(timeLeft / 60000);
+  const s = Math.floor((timeLeft % 60000) / 1000);
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-white/10 p-4 pb-safe z-[100] animate-in slide-in-from-bottom duration-300 shadow-2xl">
+      <div className="max-w-xl mx-auto flex items-center justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Pause</p>
+          <p className="text-4xl font-black text-white italic tabular-nums">
+            {m}:{s.toString().padStart(2, '0')}
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => onAddTime(30)}
+            className="px-4 py-3 bg-slate-800 text-slate-300 font-bold rounded-xl text-xs hover:bg-slate-700 transition"
+          >
+            +30s
+          </button>
+          <button
+            onClick={onEndRest}
+            className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-indigo-900/50 hover:bg-indigo-500 transition active:scale-95 flex items-center gap-2"
+          >
+            START NESTE SETT <Icons.ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ActiveWorkoutView({
   workout,
   onUpdateWorkoutName,
@@ -252,8 +301,15 @@ function ActiveWorkoutView({
   onUpdateSet,
   onToggleSet,
   onAddSet,
-  onAddExercise
-}: ActiveWorkoutViewProps) {
+  onAddExercise,
+  restTimer,
+  onEndRest,
+  onAddTime
+}: ActiveWorkoutViewProps & {
+  restTimer: { isActive: boolean, endTime: number | null },
+  onEndRest: () => void,
+  onAddTime: (s: number) => void
+}) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-40">
@@ -322,11 +378,19 @@ function ActiveWorkoutView({
                   {ex.type === 'Oppvarming' ? (
                     <div className="col-span-12 flex items-center justify-center py-4">
                       <Stopwatch
+                        // Use stored duration (reps) if available, otherwise calculate from start/end
+                        initialSeconds={set.reps || 0}
                         startTime={set.startTime}
                         completedAt={set.completedAt}
                         isRunning={!!set.startTime && !set.completed}
                         onStart={() => onUpdateSet(exIdx, sIdx, 'startTime', new Date().toISOString())}
-                        onStop={() => onUpdateSet(exIdx, sIdx, 'completedAt', new Date().toISOString())}
+                        onStop={() => {
+                          const now = new Date();
+                          const start = new Date(set.startTime!);
+                          const durationSeconds = Math.round((now.getTime() - start.getTime()) / 1000);
+                          onUpdateSet(exIdx, sIdx, 'completedAt', now.toISOString());
+                          onUpdateSet(exIdx, sIdx, 'reps', durationSeconds); // Save duration as "reps"
+                        }}
                       />
                     </div>
                   ) : (
@@ -396,6 +460,15 @@ function ActiveWorkoutView({
           </Button>
         </div>
       </main>
+
+      {/* REST TIMER OVERLAY */}
+      {restTimer.isActive && restTimer.endTime && (
+        <RestTimerOverlay
+          endTime={restTimer.endTime}
+          onEndRest={onEndRest}
+          onAddTime={onAddTime}
+        />
+      )}
     </div>
   );
 }
@@ -471,7 +544,7 @@ const AuthView: React.FC = () => {
     setMessage(null);
 
     // ADMIN BYPASS
-    if (email === 'Admin' && password === 'Admin') {
+    if ((email === 'Admin' && password === 'Admin') || (email === 'admin@admin.no' && password === '123456')) {
       localStorage.setItem('bb_admin_bypass', 'true');
       window.location.reload();
       return;
@@ -1191,15 +1264,8 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDe
             setStravaActivity(activity);
             const streams = await getActivityStreams(activity.id);
             if (streams) {
-              // Convert streams array to object map if needed by calculateDetailedStats?
-              // calculateDetailedStats expects { time: {data:[]}, heartrate: {data:[]} }
-              // verify getActivityStreams return format.
-              // usually it returns array of objects [{type: 'time', data: ...}, ...]
-
-              const streamMap: any = {};
-              streams.forEach((s: any) => { streamMap[s.type] = s; });
-
-              const stats = calculateDetailedStats(workout, activity, streamMap);
+              // streams is already an object due to key_by_type=true
+              const stats = calculateDetailedStats(workout, activity, streams);
               if (stats) {
                 setExerciseStats(stats.exerciseStats);
                 setSetStats(stats.setStats);
@@ -1519,8 +1585,15 @@ function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewProps) {
   );
 }
 // --- HELPER COMPONENTS ---
-function Stopwatch({ startTime, completedAt, isRunning, onStart, onStop }: { startTime?: string, completedAt?: string, isRunning: boolean, onStart: () => void, onStop: () => void }) {
-  const [elapsed, setElapsed] = useState(0);
+function Stopwatch({ startTime, completedAt, isRunning, onStart, onStop, initialSeconds = 0 }: {
+  startTime?: string,
+  completedAt?: string,
+  isRunning: boolean,
+  onStart: () => void,
+  onStop: () => void,
+  initialSeconds?: number
+}) {
+  const [elapsed, setElapsed] = useState(initialSeconds * 1000);
 
   useEffect(() => {
     let interval: any;
@@ -1537,11 +1610,13 @@ function Stopwatch({ startTime, completedAt, isRunning, onStart, onStop }: { sta
       const start = new Date(startTime).getTime();
       const end = new Date(completedAt).getTime();
       setElapsed(end - start);
+    } else if (initialSeconds > 0) {
+      setElapsed(initialSeconds * 1000);
     } else {
       setElapsed(0);
     }
     return () => clearInterval(interval);
-  }, [isRunning, startTime, completedAt]);
+  }, [isRunning, startTime, completedAt, initialSeconds]);
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -1731,7 +1806,10 @@ export default function App() {
     addSetToExercise,
     updateWorkoutName,
     editWorkout,
-    deleteWorkout
+    deleteWorkout,
+    restTimer,
+    endRest,
+    addRestTime
   } = useWorkout();
 
   const [view, setView] = useState<ViewState>('home');
@@ -1853,6 +1931,9 @@ export default function App() {
             setReturnView('active'); // active workout view
             setView('select_exercise');
           }}
+          restTimer={restTimer}
+          onEndRest={endRest}
+          onAddTime={addRestTime}
         />
       );
     }

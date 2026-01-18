@@ -80,21 +80,25 @@ export const supabaseService = {
             .select()
             .single();
 
-        if (wError || !wData) {
+        if (!wData) {
             console.error("Error saving workout:", wError);
             return;
         }
 
         const newWorkoutId = wData.id;
 
-        // 2. Save Exercises
-        for (const ex of workout.ovelser) {
-            // Upsert/Insert Exercise
-            // Since we moved to relational, if we re-save a workout, we might duplicate exercises if we don't track their UUIDs.
-            // For now, assuming "Finish" = Save Once. 
-            // If editing, we need UUIDs. 
-            // Let's assume Insert for simplicity as per prompt "Insert a row...".
+        // 2. Clear existing exercises (Prevent Duplicates on Update)
+        // Since we are saving the entire state of the workout, we replace the exercises.
+        if (workoutId) {
+            await supabase
+                .from('exercises')
+                .delete()
+                .eq('workout_id', newWorkoutId);
+        }
 
+        // 3. Save Exercises
+        for (const ex of workout.ovelser) {
+            // Insert Exercise
             const { data: eData, error: eError } = await supabase
                 .from('exercises')
                 .insert({

@@ -268,88 +268,91 @@ export interface ExerciseStats {
 
 // Re-write to include activityStartDate
 export const calculateDetailedStats = (workout: any, activity: any, streams: any) => {
-    if (!streams || !streams.time || !streams.heartrate) return null;
-
-    const actStart = new Date(activity.start_date).getTime();
-    const timeStream = streams.time.data; // seconds offset
-    const hrStream = streams.heartrate.data;
-
     const exerciseStats: Record<string, any> = {};
     const setStats: Record<string, any> = {};
 
-    workout.ovelser.forEach((ex: any) => {
-        let exHrSum = 0;
-        let exHrCount = 0;
-        let exMaxHr = 0;
+    // Basic stats from activity
+    const totalCalories = activity.calories || 0;
+    let totalIntensity = 0;
 
-        // Iterate sets to find time ranges
-        ex.sett.forEach((set: any) => {
-            if (set.startTime && set.completedAt) {
-                const sStart = new Date(set.startTime).getTime();
-                const sEnd = new Date(set.completedAt).getTime();
+    if (activity.average_heartrate) {
+        totalIntensity = calculateIntensity(activity.average_heartrate);
+    }
 
-                // Convert to activity-relative seconds
-                const relStart = (sStart - actStart) / 1000;
-                const relEnd = (sEnd - actStart) / 1000;
+    // If streams are available, try to do detailed analysis
+    if (streams && streams.time && streams.heartrate) {
+        const actStart = new Date(activity.start_date).getTime();
+        const timeStream = streams.time.data; // seconds offset
+        const hrStream = streams.heartrate.data;
 
-                let setHrSum = 0;
-                let setHrCount = 0;
-                let setMax = 0;
+        workout.ovelser.forEach((ex: any) => {
+            let exHrSum = 0;
+            let exHrCount = 0;
+            let exMaxHr = 0;
 
-                for (let i = 0; i < timeStream.length; i++) {
-                    const t = timeStream[i];
-                    if (t >= relStart && t <= relEnd) {
-                        const hr = hrStream[i];
-                        setHrSum += hr;
-                        setHrCount++;
-                        if (hr > setMax) setMax = hr;
+            // Iterate sets to find time ranges
+            ex.sett.forEach((set: any) => {
+                if (set.completedAt) {
+                    const sEnd = new Date(set.completedAt).getTime();
+                    // If no startTime, assume set took 60 seconds (standard lifting set duration estimate)
+                    const sStart = set.startTime
+                        ? new Date(set.startTime).getTime()
+                        : sEnd - 60000;
+
+                    // Convert to activity-relative seconds
+                    const relStart = (sStart - actStart) / 1000;
+                    const relEnd = (sEnd - actStart) / 1000;
+
+                    let setHrSum = 0;
+                    let setHrCount = 0;
+                    let setMax = 0;
+
+                    for (let i = 0; i < timeStream.length; i++) {
+                        const t = timeStream[i];
+                        if (t >= relStart && t <= relEnd) {
+                            const hr = hrStream[i];
+                            setHrSum += hr;
+                            setHrCount++;
+                            if (hr > setMax) setMax = hr;
+                        }
+                        if (t > relEnd) break; // Optimized assumption: sorted
                     }
-                    if (t > relEnd) break; // Optimized assumption: sorted
-                }
 
-                if (setHrCount > 0) {
-                    setStats[set.id] = {
-                        avgHr: Math.round(setHrSum / setHrCount),
-                        maxHr: setMax
-                    };
+                    if (setHrCount > 0) {
+                        setStats[set.id] = {
+                            avgHr: Math.round(setHrSum / setHrCount),
+                            maxHr: setMax
+                        };
 
-                    exHrSum += setHrSum;
-                    exHrCount += setHrCount;
-                    if (setMax > exMaxHr) exMaxHr = setMax;
+                        exHrSum += setHrSum;
+                        exHrCount += setHrCount;
+                        if (setMax > exMaxHr) exMaxHr = setMax;
+                    }
                 }
+            });
+
+            if (exHrCount > 0) {
+                exerciseStats[ex.id] = {
+                    avgHr: Math.round(exHrSum / exHrCount),
+                    maxHr: exMaxHr,
+                    intensity: calculateIntensity(Math.round(exHrSum / exHrCount))
+                };
             }
         });
 
-        if (exHrCount > 0) {
-            exerciseStats[ex.id] = {
-                avgHr: Math.round(exHrSum / exHrCount),
-                maxHr: exMaxHr,
-                // Simple intensity calc: (Avg / 190) * 10 -> just 1-5 scale based on zones
-                intensity: calculateIntensity(Math.round(exHrSum / exHrCount))
-            };
-        }
-    });
-
-    // Calculate total workout stats
-    const totalCalories = activity.calories || 0;
-
-    // Calculate total intensity based on average intensity of exercises, or overall avg HR
-    // Let's use the activity's average heart rate for a global intensity score if available
-    let totalIntensity = 0;
-    if (activity.average_heartrate) {
-        totalIntensity = calculateIntensity(activity.average_heartrate);
-    } else {
-        // Fallback: Average of exercise intensities
-        const intensities = Object.values(exerciseStats).map(s => s.intensity);
-        if (intensities.length > 0) {
-            totalIntensity = Math.round(intensities.reduce((a, b) => a + b, 0) / intensities.length);
+        // Fallback intensity if activity avg unavailable but we calculated exercise avg?
+        if (totalIntensity === 0) {
+            const intensities = Object.values(exerciseStats).map(s => s.intensity);
+            if (intensities.length > 0) {
+                totalIntensity = Math.round(intensities.reduce((a, b) => a + b, 0) / intensities.length);
+            }
         }
     }
 
     const workoutStats = {
         calories: Math.round(totalCalories),
         intensity: totalIntensity,
-        hrSeries: hrStream // Return full series for charting
+        hrSeries: (streams && streams.heartrate) ? streams.heartrate.data : []
     };
 
     return { exerciseStats, setStats, workoutStats };

@@ -205,78 +205,153 @@ export function useWorkout() {
     };
 
     const addExercise = (navn: string, type: ExerciseType) => {
-        if (!activeWorkout) return;
-        const nyOvelse: Ovelse = {
-            id: Date.now(),
-            navn: navn,
-            type: type,
-            sett: getLastUsedSets(navn) // Use history or default
-        };
-        setActiveWorkout({
-            ...activeWorkout,
-            ovelser: [...activeWorkout.ovelser, nyOvelse]
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+            const nyOvelse: Ovelse = {
+                id: Date.now(),
+                navn: navn,
+                type: type,
+                sett: getLastUsedSets(navn) // Use history or default
+            };
+            return {
+                ...prev,
+                ovelser: [...prev.ovelser, nyOvelse]
+            };
         });
     };
 
     const removeExercise = (exId: number | string) => {
-        if (!activeWorkout) return;
-        setActiveWorkout({
-            ...activeWorkout,
-            ovelser: activeWorkout.ovelser.filter(e => e.id !== exId)
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                ovelser: prev.ovelser.filter(e => e.id !== exId)
+            };
         });
     };
 
     const updateSet = (exIdx: number, setIdx: number, field: string, value: any) => {
-        if (!activeWorkout) return;
-        const updatedOvelser = [...activeWorkout.ovelser];
-        const set = updatedOvelser[exIdx].sett[setIdx];
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+            const updatedOvelser = [...prev.ovelser];
+            // Cloning the specific exercise
+            updatedOvelser[exIdx] = { ...updatedOvelser[exIdx] };
+            // Cloning the specific set array
+            updatedOvelser[exIdx].sett = [...updatedOvelser[exIdx].sett];
 
-        if (field === 'completedAt') {
-            // If setting completedAt, we also mark completed = true
-            updatedOvelser[exIdx].sett[setIdx] = { ...set, completedAt: value, completed: true };
-        } else if (field === 'startTime') {
-            // If setting startTime, ensure completed is false (restart)
-            updatedOvelser[exIdx].sett[setIdx] = { ...set, startTime: value, completed: false, completedAt: undefined };
-        } else {
-            // Standard update (kg/reps)
-            const val = value === '' ? 0 : Number(value);
-            updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: val };
-        }
+            const set = updatedOvelser[exIdx].sett[setIdx];
 
-        setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
+            if (field === 'completedAt') {
+                // If setting completedAt, we also mark completed = true
+                updatedOvelser[exIdx].sett[setIdx] = { ...set, completedAt: value, completed: true };
+            } else if (field === 'startTime') {
+                // If setting startTime, ensure completed is false (restart)
+                updatedOvelser[exIdx].sett[setIdx] = { ...set, startTime: value, completed: false, completedAt: undefined };
+            } else {
+                // Standard update (kg/reps)
+                const val = value === '' ? 0 : Number(value);
+                updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: val };
+            }
+
+            return { ...prev, ovelser: updatedOvelser };
+        });
     };
 
+    // --- REST TIMER STATE ---
+    const [restTimer, setRestTimer] = useState<{ isActive: boolean, endTime: number | null }>({
+        isActive: false,
+        endTime: null
+    });
+
+    // ... (Updates in toggleSetComplete)
     const toggleSetComplete = (exIdx: number, setIdx: number) => {
-        if (!activeWorkout) return;
-        const updatedOvelser = [...activeWorkout.ovelser];
-        const set = updatedOvelser[exIdx].sett[setIdx];
-        set.completed = !set.completed;
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+            const updatedOvelser = [...prev.ovelser];
+            updatedOvelser[exIdx] = { ...updatedOvelser[exIdx] };
+            updatedOvelser[exIdx].sett = [...updatedOvelser[exIdx].sett];
 
-        if (set.completed) {
-            set.completedAt = new Date().toISOString();
-        } else {
-            delete set.completedAt;
+            const set = updatedOvelser[exIdx].sett[setIdx];
+            // Toggle completion
+            const newCompleted = !set.completed;
+
+            if (newCompleted) {
+                // Determine completion time
+                const now = new Date();
+                const nowISO = now.toISOString();
+                updatedOvelser[exIdx].sett[setIdx] = { ...set, completed: true, completedAt: nowISO };
+
+                // Side effect: Start timer (we can't put this in the reducer cleanly but it works since setRestTimer is separate)
+                // Note: In React strict mode or concurrent features, side effects in set state functions are risky.
+                // ideally we use useEffect triggered by state change, but here it's "OK" for valid user interaction.
+                // HOWEVER, better to just call setRestTimer outside? No, we need to know if we actually toggled it ON.
+                // We'll keep it here but acknowledge it's not "pure".
+                setRestTimer({ isActive: true, endTime: now.getTime() + 120000 });
+            } else {
+                const { completedAt, ...rest } = set;
+                updatedOvelser[exIdx].sett[setIdx] = { ...rest, completed: false };
+                // We don't force cancel timer on uncheck usually, per logic
+            }
+
+            return { ...prev, ovelser: updatedOvelser };
+        });
+    };
+
+    const endRest = () => {
+        setRestTimer({ isActive: false, endTime: null });
+
+        // Find next uncompleted set to mark as started
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+
+            let foundNext = false;
+            // Deep clone to be safe
+            const updatedOvelser = prev.ovelser.map(ex => {
+                const updatedSets = ex.sett.map(set => {
+                    if (!foundNext && !set.completed && !set.startTime) {
+                        foundNext = true;
+                        return { ...set, startTime: new Date().toISOString() };
+                    }
+                    return set;
+                });
+                return { ...ex, sett: updatedSets };
+            });
+
+            // Only update if we actually changed something? 
+            // Ideally yes, but "foundNext" is local.
+            // If we didn't find next, updatedOvelser is effectively same data but new references. 
+            // That's fine.
+            return { ...prev, ovelser: updatedOvelser };
+        });
+    };
+
+    // Helper to add time
+    const addRestTime = (seconds: number) => {
+        if (restTimer.endTime) {
+            setRestTimer({ ...restTimer, endTime: restTimer.endTime + (seconds * 1000) });
         }
-
-        setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
     };
 
     const addSetToExercise = (exIdx: number) => {
-        if (!activeWorkout) return;
-        const updatedOvelser = [...activeWorkout.ovelser];
-        const forrigeSett = updatedOvelser[exIdx].sett[updatedOvelser[exIdx].sett.length - 1];
-        updatedOvelser[exIdx].sett.push({
-            id: Date.now(),
-            kg: forrigeSett ? forrigeSett.kg : 20,
-            reps: forrigeSett ? forrigeSett.reps : 10,
-            completed: false
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+            const updatedOvelser = [...prev.ovelser];
+            updatedOvelser[exIdx] = { ...updatedOvelser[exIdx] };
+            updatedOvelser[exIdx].sett = [...updatedOvelser[exIdx].sett];
+
+            const forrigeSett = updatedOvelser[exIdx].sett[updatedOvelser[exIdx].sett.length - 1];
+            updatedOvelser[exIdx].sett.push({
+                id: Date.now(),
+                kg: forrigeSett ? forrigeSett.kg : 20,
+                reps: forrigeSett ? forrigeSett.reps : 10,
+                completed: false
+            });
+            return { ...prev, ovelser: updatedOvelser };
         });
-        setActiveWorkout({ ...activeWorkout, ovelser: updatedOvelser });
     };
 
     const updateWorkoutName = (name: string) => {
-        if (!activeWorkout) return;
-        setActiveWorkout({ ...activeWorkout, navn: name });
+        setActiveWorkout(prev => prev ? { ...prev, navn: name } : null);
     };
 
     const finishWorkout = async () => {
@@ -407,5 +482,8 @@ export function useWorkout() {
         saveExercise: saveCustomExercise,
         deleteExercise: deleteCustomExercise,
         startNewWorkout,     // Exposing explicitly
+        restTimer,
+        endRest,
+        addRestTime
     };
 }
