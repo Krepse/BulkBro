@@ -33,7 +33,8 @@ function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
 
   useEffect(() => {
     async function checkRecovery() {
-      if (!isStravaConnected()) {
+      const connected = await isStravaConnected();
+      if (!connected) {
         setRecoveryStatus('OFFLINE');
         return;
       }
@@ -1234,10 +1235,11 @@ interface WorkoutDetailsViewProps {
   onNavigate: (view: any) => void;
   onEdit: (workout: Okt) => void;
   onDelete: (id: string | number) => void;
+  onUpdate: (workout: Okt) => void;
 }
 
-function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDetailsViewProps) {
-  const [stravaConnected] = useState(isStravaConnected());
+function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUpdate }: WorkoutDetailsViewProps) {
+  const [stravaConnected, setStravaConnected] = useState(false);
   const [stravaActivity, setStravaActivity] = useState<any | null>(null);
   const [exerciseStats, setExerciseStats] = useState<Record<string, ExerciseStats> | null>(null);
   const [setStats, setSetStats] = useState<Record<string, { avgHr: number, maxHr: number }> | null>(null);
@@ -1246,6 +1248,21 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDe
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
+    isStravaConnected().then(setStravaConnected);
+  }, []);
+
+  useEffect(() => {
+    // 1. Check for Cached Analysis
+    if (workout.stravaAnalysis) {
+      console.log("Using cached Strava analysis");
+      setExerciseStats(workout.stravaAnalysis.exerciseStats);
+      setSetStats(workout.stravaAnalysis.setStats);
+      setWorkoutStats(workout.stravaAnalysis.workoutStats);
+      setStravaActivity({ id: workout.stravaAnalysis.activityId }); // Mock subset for UI link
+      return;
+    }
+
+    // 2. Fetch if connected and no cache
     // Only fetch if we have a valid start time and end time (or infer end time)
     // For now, if we don't have explicit end time, we can't find overlap accurately, 
     // but findOverlappingActivity handles fuzzy matching if needed or we assume workout length.
@@ -1270,6 +1287,18 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDe
                 setExerciseStats(stats.exerciseStats);
                 setSetStats(stats.setStats);
                 setWorkoutStats(stats.workoutStats);
+
+                // PERSIST CACHE
+                const updatedWorkout = {
+                  ...workout,
+                  stravaAnalysis: {
+                    activityId: activity.id,
+                    exerciseStats: stats.exerciseStats,
+                    setStats: stats.setStats,
+                    workoutStats: stats.workoutStats
+                  }
+                };
+                onUpdate(updatedWorkout);
               }
             }
           }
@@ -1345,6 +1374,11 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete }: WorkoutDe
                       <div className="flex gap-4 items-center flex-1 justify-end">
                         <span className="font-black text-slate-700">
                           {(() => {
+                            if (set.reps && set.reps > 0) {
+                              const mins = Math.floor(set.reps / 60);
+                              const secs = Math.floor(set.reps % 60);
+                              return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                            }
                             if (!set.startTime || !set.completedAt) return "00:00";
                             const diff = new Date(set.completedAt).getTime() - new Date(set.startTime).getTime();
                             if (diff < 0) return "00:00";
@@ -1485,7 +1519,11 @@ interface SettingsViewProps {
 }
 
 function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewProps) {
-  const [stravaConnected, setStravaConnected] = useState(isStravaConnected());
+  const [stravaConnected, setStravaConnected] = useState(false);
+
+  useEffect(() => {
+    isStravaConnected().then(setStravaConnected);
+  }, []);
 
   const handleConnectStrava = () => {
     const clientId = import.meta.env.VITE_STRAVA_CLIENT_ID;
@@ -1495,8 +1533,8 @@ function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewProps) {
     window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=${scope}`;
   };
 
-  const handleDisconnectStrava = () => {
-    disconnectStrava();
+  const handleDisconnectStrava = async () => {
+    await disconnectStrava();
     setStravaConnected(false);
   };
 
@@ -1807,6 +1845,7 @@ export default function App() {
     updateWorkoutName,
     editWorkout,
     deleteWorkout,
+    updateHistoryItem,
     restTimer,
     endRest,
     addRestTime
@@ -1829,9 +1868,9 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
 
-      if (code) {
+      if (code && user) {
         console.log("Strava code detected, exchanging...");
-        const success = await exchangeToken(code);
+        const success = await exchangeToken(code, user.id);
 
         if (success) {
           console.log("Strava connected successfully!");
@@ -1846,7 +1885,7 @@ export default function App() {
     };
 
     handleStravaCallback();
-  }, []);
+  }, [user]);
 
   // Auth Guard
   if (!user) {
@@ -1955,6 +1994,7 @@ export default function App() {
         return selectedWorkout ? (
           <WorkoutDetailsView
             workout={selectedWorkout}
+            onUpdate={updateHistoryItem}
             onNavigate={handleNavigate}
             onEdit={(w) => { editWorkout(w); setView('active'); }}
             onDelete={(id) => {

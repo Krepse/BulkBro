@@ -24,6 +24,14 @@ export interface Okt {
   startTime?: string; // ISO timestamp
   endTime?: string; // ISO timestamp
   ovelser: Ovelse[];
+  stravaAnalysis?: StravaAnalysis;
+}
+
+export interface StravaAnalysis {
+  activityId: number;
+  exerciseStats: Record<string, any>; // detailed stats
+  setStats: Record<string, any>; // set specific stats
+  workoutStats: { calories: number, intensity: number, hrSeries?: number[] };
 }
 
 export interface Program {

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.workouts (
     date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
+    strava_analysis JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -135,4 +136,5 @@ DROP POLICY IF EXISTS "Users can update their own custom exercises" ON custom_ex
 CREATE POLICY "Users can update their own custom exercises" ON custom_exercises FOR UPDATE USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Users can delete their own custom exercises" ON custom_exercises;
-CREATE POLICY "Users can delete their own custom exercises" ON custom_exercises FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete their own custom exercises" ON custom_exercises FOR DELETE USING (auth.uid() = user_id);-- 5. MIGRATIONS (Safe to run)
+ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS strava_analysis JSONB;

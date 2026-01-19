@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabase';
+
 export interface StravaActivity {
     id?: number;
     name: string;
@@ -19,10 +21,11 @@ export const STRAVA_CONFIG = {
 export const getStravaAuthUrl = () => {
     const params = new URLSearchParams({
         client_id: STRAVA_CONFIG.CLIENT_ID,
-        redirect_uri: STRAVA_CONFIG.REDIRECT_URI,
+        redirect_uri: STRAVA_CONFIG.REDIRECT_URI, // This should match what's set in App.tsx settings usually window.location.origin
         response_type: 'code',
         scope: 'activity:write,activity:read_all',
     });
+    // Note: redirect_uri is partially dynamic in App.tsx, but base oauth url is consistent
     return `${STRAVA_CONFIG.AUTH_URL}?${params.toString()}`;
 };
 
@@ -35,7 +38,7 @@ interface StravaTokenResponse {
     athlete: any;
 }
 
-export const exchangeToken = async (code: string): Promise<boolean> => {
+export const exchangeToken = async (code: string, userId: string): Promise<boolean> => {
     try {
         const response = await fetch(STRAVA_CONFIG.TOKEN_URL, {
             method: 'POST',
@@ -55,7 +58,7 @@ export const exchangeToken = async (code: string): Promise<boolean> => {
         }
 
         const data: StravaTokenResponse = await response.json();
-        saveTokens(data);
+        await saveTokens(data, userId);
         return true;
     } catch (error) {
         console.error('Strava token exchange error:', error);
@@ -65,36 +68,49 @@ export const exchangeToken = async (code: string): Promise<boolean> => {
 
 // Utility to get token, refreshing if necessary
 export const getAccessToken = async (): Promise<string | null> => {
-    const token = localStorage.getItem('strava_access_token');
-    const expiresAt = localStorage.getItem('strava_expires_at');
-    const refreshToken = localStorage.getItem('strava_refresh_token');
+    // We need the current user to get their token
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
+    const userId = session.user.id;
 
-    if (!token || !expiresAt || !refreshToken) return null;
+    // Fetch from Supabase
+    const { data: integration, error } = await supabase
+        .from('user_integrations')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('provider', 'strava')
+        .single();
+
+    if (error || !integration) {
+        return null;
+    }
+
+    const { access_token, refresh_token, expires_at } = integration;
 
     // Check if expired (or expiring in next 5 mins)
     const now = Math.floor(Date.now() / 1000);
-    if (now >= parseInt(expiresAt) - 300) {
+    if (now >= parseInt(expires_at) - 300) {
         console.log("Strava token expired, refreshing...");
-        const refreshSuccess = await refreshAccessToken(refreshToken);
-        if (refreshSuccess) {
-            return localStorage.getItem('strava_access_token');
+        const newAccessToken = await refreshAccessToken(refresh_token, userId);
+        if (newAccessToken) {
+            return newAccessToken;
         } else {
-            // If refresh fails, log out
-            disconnectStrava();
+            // If refresh fails, log out (delete integration)
+            await disconnectStrava();
             return null;
         }
     }
 
-    return token;
+    return access_token;
 };
 
-const refreshAccessToken = async (refreshToken: string): Promise<boolean> => {
+const refreshAccessToken = async (refreshToken: string, userId: string): Promise<string | null> => {
     const clientId = import.meta.env.VITE_STRAVA_CLIENT_ID;
     const clientSecret = import.meta.env.VITE_STRAVA_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
         console.error("Missing Strava keys");
-        return false;
+        return null;
     }
 
     try {
@@ -112,16 +128,16 @@ const refreshAccessToken = async (refreshToken: string): Promise<boolean> => {
         if (!response.ok) throw new Error('Failed to refresh token');
 
         const data: StravaTokenResponse = await response.json();
-        saveTokens(data);
-        return true;
+        await saveTokens(data, userId);
+        return data.access_token;
     } catch (error) {
         console.error("Error refreshing token:", error);
-        return false;
+        return null;
     }
 };
 
 export const getActivities = async (after: number, before: number) => {
-    const token = await getAccessToken(); // Now async
+    const token = await getAccessToken(); // Async fetch
     if (!token) return [];
 
     try {
@@ -156,22 +172,48 @@ export const getActivityStreams = async (activityId: number) => {
     }
 };
 
-const saveTokens = (data: StravaTokenResponse) => {
-    localStorage.setItem('strava_access_token', data.access_token);
-    localStorage.setItem('strava_refresh_token', data.refresh_token);
-    localStorage.setItem('strava_expires_at', data.expires_at.toString());
-    localStorage.setItem('strava_athlete', JSON.stringify(data.athlete));
+const saveTokens = async (data: StravaTokenResponse, userId: string) => {
+    // Upsert into Supabase
+    const { error } = await supabase
+        .from('user_integrations')
+        .upsert({
+            user_id: userId,
+            provider: 'strava',
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+            expires_at: data.expires_at,
+            athlete_data: data.athlete,
+            updated_at: new Date().toISOString() // trigger update
+        }, { onConflict: 'user_id' });
+
+    if (error) {
+        console.error("Failed to save tokens to DB:", error);
+    }
 };
 
-export const isStravaConnected = () => {
-    return !!localStorage.getItem('strava_access_token');
+export const isStravaConnected = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return false;
+
+    const { data, error } = await supabase
+        .from('user_integrations')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('provider', 'strava')
+        .single();
+
+    return !!data && !error;
 };
 
-export const disconnectStrava = () => {
-    localStorage.removeItem('strava_access_token');
-    localStorage.removeItem('strava_refresh_token');
-    localStorage.removeItem('strava_expires_at');
-    localStorage.removeItem('strava_athlete');
+export const disconnectStrava = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+
+    await supabase
+        .from('user_integrations')
+        .delete()
+        .eq('user_id', session.user.id)
+        .eq('provider', 'strava');
 };
 
 export const mapWorkoutToStravaPayload = (workout: any): StravaActivity => {
@@ -224,14 +266,11 @@ export const calculateRecoveryStatus = (activities: any[]): 'JA' | 'OK' | 'NEI' 
     }
 
     // Thresholds (Tunable) based on 7-day Load accumulation
-    // > 600: High volume/intensity -> Recommend rest/light
-    // 300-600: Moderate -> OK to train
-    // < 300: Low -> Fresh
-
     if (totalLoad > 600) return 'NEI';
     if (totalLoad > 300) return 'OK';
     return 'JA';
 };
+
 // Find an activity that overlaps with the workout window
 export const findOverlappingActivity = async (startTime: string, endTime: string): Promise<any | null> => {
     const token = await getAccessToken();
@@ -342,9 +381,9 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
 
         // Fallback intensity if activity avg unavailable but we calculated exercise avg?
         if (totalIntensity === 0) {
-            const intensities = Object.values(exerciseStats).map(s => s.intensity);
+            const intensities = Object.values(exerciseStats).map((s: any) => s.intensity);
             if (intensities.length > 0) {
-                totalIntensity = Math.round(intensities.reduce((a, b) => a + b, 0) / intensities.length);
+                totalIntensity = Math.round(intensities.reduce((a: number, b: number) => a + b, 0) / intensities.length);
             }
         }
     }

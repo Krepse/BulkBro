@@ -460,6 +460,13 @@ export function useWorkout() {
         }
     };
 
+    const updateHistoryItem = async (workout: Okt) => {
+        setWorkoutHistory(prev => prev.map(w => w.id === workout.id ? workout : w));
+        if (user) {
+            await supabaseService.saveWorkout(workout, user.id);
+        }
+    };
+
     return {
         user,
         workoutHistory,
@@ -477,6 +484,7 @@ export function useWorkout() {
         finishWorkout,
         deleteWorkout,
         editWorkout,
+        updateHistoryItem, // New exposed function
         saveProgram,
         deleteProgram,
         saveExercise: saveCustomExercise,

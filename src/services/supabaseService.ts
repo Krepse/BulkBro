@@ -42,6 +42,7 @@ export const supabaseService = {
             dato: new Date(w.start_time).toLocaleString('no-NO'), // approximation
             startTime: w.start_time,
             endTime: w.end_time,
+            stravaAnalysis: w.strava_analysis, // Map JSONB to object
             ovelser: w.exercises.map((e: any) => ({
                 id: e.id,
                 navn: e.name,
@@ -75,7 +76,8 @@ export const supabaseService = {
                 user_id: userId,
                 name: workout.navn,
                 start_time: workout.startTime,
-                end_time: workout.endTime
+                end_time: workout.endTime,
+                strava_analysis: workout.stravaAnalysis // Save JSONB
             })
             .select()
             .single();
