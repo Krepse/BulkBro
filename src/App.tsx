@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
 import { useMantra } from './hooks/useMantra';
@@ -238,7 +238,7 @@ interface ActiveWorkoutViewProps {
   onFinish: () => void;
   onNavigate: (view: any) => void;
   onRemoveExercise: (id: string | number) => void;
-  onUpdateSet: (exIdx: number, setIdx: number, field: any, value: any) => void;
+  onUpdateSet: (exIdx: number, setIdx: number, field: any, value: any, shouldSync?: boolean) => void;
   onToggleSet: (exIdx: number, setIdx: number) => void;
   onAddSet: (exIdx: number) => void;
   onAddExercise: () => void;
@@ -344,7 +344,12 @@ function ActiveWorkoutView({
         {workout.ovelser.map((ex, exIdx) => (
           <div key={ex.id} className="bg-white rounded-[2rem] p-6 shadow-xl shadow-slate-100/50 border border-slate-100/50">
             <div className="flex justify-between items-start mb-8 pl-4 border-l-4 border-indigo-600">
-              <h3 className="font-black text-2xl text-slate-800 uppercase tracking-tighter italic leading-none">{ex.navn}</h3>
+              <div>
+                <h3 className="font-black text-2xl text-slate-800 uppercase tracking-tighter italic leading-none">{ex.navn}</h3>
+                {ex.type && ex.type !== 'Oppvarming' && (
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{ex.type}</p>
+                )}
+              </div>
               <button
                 onClick={() => onRemoveExercise(ex.id)}
                 className="text-slate-300 hover:text-red-400 transition-colors p-2 -mr-2 -mt-2"
@@ -390,7 +395,8 @@ function ActiveWorkoutView({
                           const start = new Date(set.startTime!);
                           const durationSeconds = Math.round((now.getTime() - start.getTime()) / 1000);
                           onUpdateSet(exIdx, sIdx, 'completedAt', now.toISOString());
-                          onUpdateSet(exIdx, sIdx, 'reps', durationSeconds); // Save duration as "reps"
+                          // Save duration and TRIGGER SYNC
+                          onUpdateSet(exIdx, sIdx, 'reps', durationSeconds, true);
                         }}
                       />
                     </div>
@@ -401,6 +407,7 @@ function ActiveWorkoutView({
                           <input
                             type="number"
                             value={set.kg}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) => onUpdateSet(exIdx, sIdx, 'kg', e.target.value)}
                             className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all placeholder-transparent"
                           />
@@ -412,6 +419,7 @@ function ActiveWorkoutView({
                         <input
                           type="number"
                           value={set.reps}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => onUpdateSet(exIdx, sIdx, 'reps', e.target.value)}
                           className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all"
                         />
@@ -459,6 +467,16 @@ function ActiveWorkoutView({
             <Icons.Plus className="w-6 h-6" />
             + Legg til ny øvelse
           </Button>
+        </div>
+
+        <div className="pb-8">
+          <button
+            onClick={onFinish}
+            className="w-full bg-green-500 hover:bg-green-600 text-white font-black py-6 rounded-[2rem] shadow-xl shadow-green-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-xl uppercase tracking-wider"
+          >
+            <Icons.CheckCircle2 className="w-8 h-8" />
+            Lagre og Avslutt
+          </button>
         </div>
       </main>
 
@@ -1236,9 +1254,12 @@ interface WorkoutDetailsViewProps {
   onEdit: (workout: Okt) => void;
   onDelete: (id: string | number) => void;
   onUpdate: (workout: Okt) => void;
+
+  allWorkouts: Okt[];
+  onViewStats: (name: string) => void;
 }
 
-function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUpdate }: WorkoutDetailsViewProps) {
+function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUpdate, allWorkouts, onViewStats }: WorkoutDetailsViewProps) {
   const [stravaConnected, setStravaConnected] = useState(false);
   const [stravaActivity, setStravaActivity] = useState<any | null>(null);
   const [exerciseStats, setExerciseStats] = useState<Record<string, ExerciseStats> | null>(null);
@@ -1252,14 +1273,29 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUpdate }:
   }, []);
 
   useEffect(() => {
-    // 1. Check for Cached Analysis
+    // 1. Check for Cached Analysis AND Validity
     if (workout.stravaAnalysis) {
-      console.log("Using cached Strava analysis");
-      setExerciseStats(workout.stravaAnalysis.exerciseStats);
-      setSetStats(workout.stravaAnalysis.setStats);
-      setWorkoutStats(workout.stravaAnalysis.workoutStats);
-      setStravaActivity({ id: workout.stravaAnalysis.activityId }); // Mock subset for UI link
-      return;
+      // Validate that the cached keys actually match the current set IDs
+      // (Fixes issue where IDs were regenerated by DB, breaking the map)
+      const currentSetIds = new Set(workout.ovelser.flatMap(e => e.sett.map(s => String(s.id))));
+      const cachedSetIds = Object.keys(workout.stravaAnalysis.setStats || {});
+
+      const idsMatch = cachedSetIds.length === 0 || cachedSetIds.some(id => currentSetIds.has(id));
+      const hasCalories = (workout.stravaAnalysis.workoutStats?.calories || 0) > 0;
+
+      // INVALIDATE if IDs don't match OR if calories are 0 (to trigger new fallback calculation)
+      const isCacheValid = idsMatch && hasCalories;
+
+      if (isCacheValid) {
+        console.log("Using cached Strava analysis");
+        setExerciseStats(workout.stravaAnalysis.exerciseStats);
+        setSetStats(workout.stravaAnalysis.setStats);
+        setWorkoutStats(workout.stravaAnalysis.workoutStats);
+        setStravaActivity({ id: workout.stravaAnalysis.activityId }); // Mock subset for UI link
+        return;
+      } else {
+        console.warn("Cached Strava analysis has stale IDs. Re-fetching...");
+      }
     }
 
     // 2. Fetch if connected and no cache
@@ -1312,6 +1348,68 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUpdate }:
     }
   }, [stravaConnected, workout]);
 
+  // --- STATS CALCULATIONS ---
+  const stats = useMemo(() => {
+    // 1. DURATION
+    let duration = "0m";
+    if (workout.startTime && workout.endTime) {
+      const diff = new Date(workout.endTime).getTime() - new Date(workout.startTime).getTime();
+      const hrs = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      duration = hrs > 0 ? `${hrs}t ${mins}m` : `${mins}m`;
+    } else if (workout.ovelser.length > 0) {
+      // Fallback: Estimates based on sets if no end time
+      const sets = workout.ovelser.flatMap(e => e.sett).filter(s => s.completedAt);
+      if (sets.length > 1) {
+        sets.sort((a, b) => new Date(a.completedAt!).getTime() - new Date(b.completedAt!).getTime());
+        const start = workout.startTime ? new Date(workout.startTime).getTime() : new Date(sets[0].completedAt!).getTime() - 60000;
+        const end = new Date(sets[sets.length - 1].completedAt!).getTime();
+        const diff = end - start;
+        const hrs = Math.floor(diff / 3600000);
+        const mins = Math.floor((diff % 3600000) / 60000);
+        duration = hrs > 0 ? `${hrs}t ${mins}m` : `${mins}m`;
+      }
+    }
+
+    // 2. TOTAL VOLUME
+    let volume = 0;
+    workout.ovelser.forEach(ex => {
+      ex.sett.forEach(s => {
+        if (s.completed) volume += (s.kg * s.reps);
+      });
+    });
+
+    // 3. PRs
+    const prExerciseIds = new Set<string | number>();
+    const previousWorkouts = allWorkouts.filter(w => new Date(w.dato).getTime() < new Date(workout.dato).getTime());
+
+    workout.ovelser.forEach(ex => {
+      if (ex.type === 'Oppvarming' || ex.type === 'Egenvekt') return;
+
+      // Max weight in THIS workout for this exercise
+      const currentMax = Math.max(...ex.sett.map(s => s.kg));
+      if (currentMax <= 0) return;
+
+      // Find max weight in ALL previous workouts for same exercise name
+      let historyMax = 0;
+      previousWorkouts.forEach(pw => {
+        const sameEx = pw.ovelser.find(pe => pe.navn === ex.navn); // Match by name!
+        if (sameEx && sameEx.sett) {
+          const m = Math.max(...sameEx.sett.map(s => s.kg));
+          if (m > historyMax) historyMax = m;
+        }
+      });
+
+      // If we beat history, it's a PR! (And history must exist, otherwise first workout is all PRs? Maybe fun, let's say historyMax > 0 for "beat previous", or just default is PR? Let's strictly require beating a non-zero previous record to avoid "PR" on first ever try unless user wants that. Let's start with strict: must beat previous best > 0. Actually, beating 0 is technically a PR if it's the first time. Let's allow it if historyMax is 0 it means "New Record" too).
+      // Update: User usually wants "New PR" badge even on first try if it sets the baseline.
+      if (currentMax > historyMax) {
+        prExerciseIds.add(ex.id);
+      }
+    });
+
+    return { duration, volume, prCount: prExerciseIds.size, prExerciseIds };
+  }, [workout, allWorkouts]);
+
 
 
   return (
@@ -1358,10 +1456,55 @@ function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUpdate }:
           )}
         </div>
 
+        {/* STATS GRID */}
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Totalt Løft</p>
+            <p className="text-lg font-black text-slate-800 break-all">{stats.volume.toLocaleString()} KG</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Tid</p>
+            <p className="text-lg font-black text-slate-800 whitespace-nowrap">{stats.duration}</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Nye PRs</p>
+            <p className="text-lg font-black text-indigo-500">{stats.prCount} 🏆</p>
+          </div>
+        </div>
+
         <div className="space-y-4">
-          {workout.ovelser.map((ex, i) => (
+          {[...workout.ovelser].sort((a, b) => {
+            const getStartTime = (ex: any) => {
+              const times = ex.sett
+                .filter((s: any) => s.startTime || s.completedAt)
+                .map((s: any) => new Date(s.startTime || s.completedAt!).getTime());
+              return times.length > 0 ? Math.min(...times) : Infinity;
+            };
+            return getStartTime(a) - getStartTime(b);
+          }).map((ex, i) => (
             <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100/50">
-              <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter italic mb-4 pl-4 border-l-4 border-indigo-500">{ex.navn}</h3>
+              <div className="mb-4 pl-4 border-l-4 border-indigo-500">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter italic leading-none">{ex.navn}</h3>
+                    <button
+                      onClick={() => onViewStats(ex.navn)}
+                      className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors active:scale-95"
+                      title="Se statistikk"
+                    >
+                      <Icons.BarChart2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {stats.prExerciseIds.has(ex.id) && (
+                    <span className="bg-yellow-100 text-yellow-700 text-[10px] font-black px-2 py-1 rounded-full border border-yellow-200 uppercase tracking-wide flex items-center gap-1">
+                      🏆 Ny PR
+                    </span>
+                  )}
+                </div>
+                {ex.type && ex.type !== 'Oppvarming' && (
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{ex.type}</p>
+                )}
+              </div>
               <div className="space-y-2">
                 {ex.sett.map((set, sIdx) => (
                   <div key={sIdx} className="flex justify-between items-center px-4 py-2 bg-slate-50 rounded-xl">
@@ -1855,7 +1998,7 @@ export default function App() {
   const [returnView, setReturnView] = useState<ViewState>('home');
 
   // Ephemeral State
-  const [selectedWorkout, setSelectedWorkout] = useState<Okt | null>(null);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | number | null>(null);
   const [exerciseName, setExerciseName] = useState<string>('');
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [editingProgram, setEditingProgram] = useState<Program | null>(null);
@@ -1986,16 +2129,23 @@ export default function App() {
           <HistoryView
             onNavigate={handleNavigate}
             workoutHistory={workoutHistory}
-            onSelectWorkout={(w) => { setSelectedWorkout(w); setView('workout_details'); }}
+            onSelectWorkout={(w) => { setSelectedWorkoutId(w.id); setView('workout_details'); }}
           />
         );
 
       case 'workout_details':
-        return selectedWorkout ? (
+        const workoutDetails = workoutHistory.find(w => w.id === selectedWorkoutId);
+        return workoutDetails ? (
           <WorkoutDetailsView
-            workout={selectedWorkout}
+            workout={workoutDetails}
             onUpdate={updateHistoryItem}
+            allWorkouts={workoutHistory}
             onNavigate={handleNavigate}
+            onViewStats={(name) => {
+              setExerciseName(name);
+              setReturnView('workout_details');
+              setView('exercise_stats');
+            }}
             onEdit={(w) => { editWorkout(w); setView('active'); }}
             onDelete={(id) => {
               deleteWorkout(id);
@@ -2103,7 +2253,7 @@ export default function App() {
         // We need to pass the name. Assuming render uses 'exerciseName' state.
         return (
           <ExerciseStatsView
-            onNavigate={() => setView('exercise_library')}
+            onNavigate={() => setView(returnView || 'exercise_library')}
             stats={getExerciseStats(exerciseName)}
             exerciseName={exerciseName}
           />

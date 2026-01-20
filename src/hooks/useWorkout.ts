@@ -230,7 +230,22 @@ export function useWorkout() {
         });
     };
 
-    const updateSet = (exIdx: number, setIdx: number, field: string, value: any) => {
+    // --- CLOUD SYNC HELPER ---
+    const saveActiveWorkoutToCloud = async (workoutToSave: Okt) => {
+        if (!user) return;
+        try {
+            console.log("Checkpointing active workout to cloud...");
+            const newId = await supabaseService.saveWorkout(workoutToSave, user.id);
+            if (newId && newId !== workoutToSave.id) {
+                console.log(`Updated active workout ID from ${workoutToSave.id} to ${newId}`);
+                setActiveWorkout(prev => prev ? { ...prev, id: newId } : null);
+            }
+        } catch (err) {
+            console.error("Failed to checkpoint workout:", err);
+        }
+    };
+
+    const updateSet = (exIdx: number, setIdx: number, field: string, value: any, shouldSync: boolean = false) => {
         setActiveWorkout(prev => {
             if (!prev) return null;
             const updatedOvelser = [...prev.ovelser];
@@ -253,7 +268,14 @@ export function useWorkout() {
                 updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: val };
             }
 
-            return { ...prev, ovelser: updatedOvelser };
+            const nextState = { ...prev, ovelser: updatedOvelser };
+
+            // Trigger sync if requested (e.g. stopping a timer)
+            if (shouldSync) {
+                saveActiveWorkoutToCloud(nextState);
+            }
+
+            return nextState;
         });
     };
 

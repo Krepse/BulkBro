@@ -104,6 +104,7 @@ export const supabaseService = {
             const { data: eData, error: eError } = await supabase
                 .from('exercises')
                 .insert({
+                    id: ex.id, // PERSIST ID
                     workout_id: newWorkoutId,
                     user_id: userId,
                     name: ex.navn,
@@ -118,6 +119,7 @@ export const supabaseService = {
 
             // 3. Save Sets
             const setsPayload = ex.sett.map(s => ({
+                id: s.id, // PERSIST ID
                 exercise_id: newExId,
                 user_id: userId,
                 kg: s.kg,

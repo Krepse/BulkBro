@@ -311,7 +311,25 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
     const setStats: Record<string, any> = {};
 
     // Basic stats from activity
-    const totalCalories = activity.calories || 0;
+    let totalCalories = activity.calories || 0;
+
+    // Fallback if calories missing (Common in WeightTraining without power meter/user weight)
+    if (!totalCalories) {
+        if (activity.kilojoules) {
+            totalCalories = activity.kilojoules / 4.184;
+        } else {
+            // Estimate!
+            const durationMins = (activity.moving_time || activity.elapsed_time) / 60;
+            if (activity.average_heartrate) {
+                // Estimate: (AvgHR / 150) * ~600kcal/hr
+                totalCalories = (activity.average_heartrate / 150) * 10 * durationMins;
+            } else {
+                // Generic Weight Lifting: ~350 kcal/hr
+                totalCalories = 6 * durationMins;
+            }
+        }
+    }
+
     let totalIntensity = 0;
 
     if (activity.average_heartrate) {
