@@ -27,9 +27,14 @@ export interface Okt {
   stravaAnalysis?: StravaAnalysis;
 }
 
+export interface ExerciseStats {
+  maxHr: number;
+  avgHr: number;
+}
+
 export interface StravaAnalysis {
   activityId: number;
-  exerciseStats: Record<string, any>; // detailed stats
+  exerciseStats: Record<string, ExerciseStats>; // detailed stats
   setStats: Record<string, any>; // set specific stats
   workoutStats: { calories: number, intensity: number, hrSeries?: number[] };
 }
