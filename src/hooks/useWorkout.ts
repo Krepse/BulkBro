@@ -489,6 +489,28 @@ export function useWorkout() {
         }
     };
 
+    const reorderExercises = (newOrderIds: (string | number)[]) => {
+        setActiveWorkout(prev => {
+            if (!prev) return null;
+
+            // Map the new order IDs to the actual exercise objects
+            // We need to be careful to preserve the exercise objects exactly as they are
+            const currentExercises = new Map(prev.ovelser.map(e => [e.id, e]));
+
+            const reorderedExercises = newOrderIds
+                .map(id => currentExercises.get(id))
+                .filter((e): e is Ovelse => e !== undefined); // TS guard
+
+            // If we lost any exercises (shouldn't happen), append them at the end or handle error
+            // ideally we just use the reordered list if lengths match
+
+            return {
+                ...prev,
+                ovelser: reorderedExercises
+            };
+        });
+    };
+
     return {
         user,
         workoutHistory,
@@ -499,6 +521,7 @@ export function useWorkout() {
         cancelWorkout: () => setActiveWorkout(null),
         addExercise,
         removeExercise,
+        reorderExercises, // New exposed function
         updateSet,
         toggleSetComplete,
         addSetToExercise,
@@ -506,12 +529,12 @@ export function useWorkout() {
         finishWorkout,
         deleteWorkout,
         editWorkout,
-        updateHistoryItem, // New exposed function
+        updateHistoryItem,
         saveProgram,
         deleteProgram,
         saveExercise: saveCustomExercise,
         deleteExercise: deleteCustomExercise,
-        startNewWorkout,     // Exposing explicitly
+        startNewWorkout,
         restTimer,
         endRest,
         addRestTime

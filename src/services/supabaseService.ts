@@ -180,16 +180,11 @@ export const supabaseService = {
     },
 
     async saveProgram(program: Program, userId: string) {
-        /* simplified upsert */
-        const { data: existing } = await supabase
-            .from('programs')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('data->>id', String(program.id))
-            .maybeSingle();
+        // Delete any existing program with this ID (pseudo-upsert via delete-insert)
+        // This avoids "duplicate key" issues if IDs are messy or if we want to ensure a clean slate
+        await supabase.from('programs').delete().eq('user_id', userId).eq('data->>id', String(program.id));
 
-        await supabase.from('programs').upsert({
-            ...(existing ? { id: existing.id } : {}),
+        await supabase.from('programs').insert({
             user_id: userId,
             data: program,
             updated_at: new Date().toISOString()
@@ -245,15 +240,10 @@ export const supabaseService = {
     },
 
     async saveExercise(exercise: Exercise, userId: string) {
-        const { data: existing } = await supabase
-            .from('custom_exercises')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('data->>id', exercise.id)
-            .maybeSingle();
+        // Delete existing to ensure clean update (avoids duplicate rows with same data->>id)
+        await supabase.from('custom_exercises').delete().eq('user_id', userId).eq('data->>id', String(exercise.id));
 
-        await supabase.from('custom_exercises').upsert({
-            ...(existing ? { id: existing.id } : {}),
+        await supabase.from('custom_exercises').insert({
             user_id: userId,
             data: exercise,
             updated_at: new Date().toISOString()
