@@ -85,9 +85,9 @@ export function LineChart({ data, color = "#6366f1" }: { data: ChartDataPoint[],
                 />
             </svg>
             <div className="absolute top-0 right-0 text-[10px] font-bold text-slate-400 bg-white/80 px-1 rounded">Max: {maxVal}</div>
-            <div className="absolute inset-x-0 bottom-0 h-8 flex items-end justify-between px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                <span className="text-[10px] text-slate-400">{data[0].label}</span>
-                <span className="text-[10px] text-slate-400">{data[data.length - 1].label}</span>
+            <div className="absolute inset-x-0 bottom-0 h-6 flex items-end justify-between px-2 pointer-events-none">
+                <span className="text-[10px] text-slate-400 font-bold">{data[0].label}</span>
+                <span className="text-[10px] text-slate-400 font-bold">{data[data.length - 1].label}</span>
             </div>
         </div>
     );
@@ -100,24 +100,31 @@ export function BarChart({ data, color = "#6366f1" }: { data: ChartDataPoint[], 
     const maxVal = Math.max(...values);
 
     return (
-        <div className="w-full h-full flex items-end justify-between gap-1 pt-4">
-            {data.map((d, i) => {
-                const height = (d.value / maxVal) * 100;
-                return (
-                    <div key={i} className="flex-1 flex flex-col justify-end group relative h-full">
-                        <div
-                            style={{ height: `${height}%`, backgroundColor: color }}
-                            className="w-full rounded-t-sm opacity-80 hover:opacity-100 transition-all"
-                        ></div>
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-max">
-                            <div className="bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg z-50">
-                                {d.value}
-                                <div className="text-[8px] font-normal opacity-70">{d.label}</div>
+        <div className="w-full h-full relative group">
+            <div className="w-full h-full flex items-end justify-between gap-1 pb-6 pt-4">
+                {data.map((d, i) => {
+                    const height = (d.value / maxVal) * 100;
+                    return (
+                        <div key={i} className="flex-1 flex flex-col justify-end relative h-full">
+                            <div
+                                style={{ height: `${height}%`, backgroundColor: color }}
+                                className="w-full rounded-t-sm opacity-80 hover:opacity-100 transition-all"
+                            ></div>
+                            {/* Tooltip */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block hover:block z-10 w-max">
+                                <div className="bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg z-50">
+                                    {d.value}
+                                    <div className="text-[8px] font-normal opacity-70">{d.label}</div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )
-            })}
+                    )
+                })}
+            </div>
+            <div className="absolute inset-x-0 bottom-0 h-6 flex items-end justify-between px-1 pointer-events-none">
+                <span className="text-[10px] text-slate-400 font-bold">{data[0].label}</span>
+                <span className="text-[10px] text-slate-400 font-bold">{data[data.length - 1].label}</span>
+            </div>
         </div>
     );
 }

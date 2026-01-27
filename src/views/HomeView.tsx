@@ -19,6 +19,59 @@ export function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
     const [recoveryStatus, setRecoveryStatus] = useState<'JA' | 'OK' | 'NEI' | 'LOADING' | 'OFFLINE'>('LOADING');
     const [showRecoveryInfo, setShowRecoveryInfo] = useState(false);
 
+    // Calculate PRs in last 7 days
+    const recentPRs = (() => {
+        // 1. Sort history chronologically
+        const sorted = [...workoutHistory].sort((a, b) => {
+            const dateA = new Date(a.startTime || a.dato).getTime();
+            const dateB = new Date(b.startTime || b.dato).getTime();
+            return dateA - dateB;
+        });
+
+        // 2. Track Max By Exercise
+        const maxByExercise = new Map<string, number>();
+        let prCount = 0;
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        sorted.forEach(workout => {
+            const wDate = new Date(workout.startTime || workout.dato);
+
+            workout.ovelser.forEach(ex => {
+                if (ex.type === 'Oppvarming' || ex.type === 'Egenvekt' || !ex.sett || ex.sett.length === 0) return;
+
+                const currentMax = Math.max(...ex.sett.map(s => Number(s.kg) || 0));
+                if (currentMax <= 0) return;
+
+                const prevMax = maxByExercise.get(ex.navn) || 0;
+
+                // Update Max
+                if (currentMax > prevMax) {
+                    maxByExercise.set(ex.navn, currentMax);
+
+                    // Only count if this specific improvement happened in the last 7 days AND it was an improvement over previous history
+                    // (Note: The first time we see an exercise, prevMax is 0, so it counts as PR. 
+                    // To avoid counting every first time exercise as PR in the window, we might want to check if prevMax > 0 
+                    // OR accept that "first time" is a PR. Usually "First time" IS a PR.)
+                    // BUT: If the user has history OLDER than 7 days, prevMax will be set. 
+                    // If they just started, everything is a PR. That is acceptable.
+                    if (wDate >= sevenDaysAgo) {
+                        prCount++;
+                    }
+                }
+            });
+        });
+
+        return prCount;
+    })();
+
+    // Check if trained today
+    const hasTrainedToday = workoutHistory.some(w => {
+        const d = new Date(w.startTime || w.dato);
+        const now = new Date();
+        return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+
     useEffect(() => {
         async function checkRecovery() {
             const connected = await isStravaConnected();
@@ -28,7 +81,17 @@ export function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
             }
             try {
                 const activities = await getRecentActivities();
-                const status = calculateRecoveryStatus(activities);
+                let status = calculateRecoveryStatus(activities);
+
+                // If user has trained today (locally), we conservatively downgrade the recovery status
+                // "JA" (Fresh) -> "OK" (Some fatigue, but playable)
+                // "OK" (Moderate) -> "NEI" (High fatigue, consider checking out)
+                // "NEI" -> Stay "NEI"
+                if (hasTrainedToday) {
+                    if (status === 'JA') status = 'OK';
+                    else if (status === 'OK') status = 'NEI';
+                }
+
                 setRecoveryStatus(status);
             } catch (e) {
                 console.error(e);
@@ -36,7 +99,7 @@ export function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
             }
         }
         checkRecovery();
-    }, []);
+    }, [hasTrainedToday]);
 
     return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 pb-20 text-center relative overflow-hidden font-sans bg-slate-900 text-white">
@@ -91,7 +154,7 @@ export function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
                     <Icons.Trophy className="w-6 h-6 text-white" />
                     <div className="text-left">
                         <p className="text-[10px] font-black text-indigo-200 uppercase tracking-wider mb-0.5">PRs siste 7 dager</p>
-                        <p className="text-2xl font-black text-white italic">0</p>
+                        <p className="text-2xl font-black text-white italic">{recentPRs}</p>
                     </div>
                 </div>
 

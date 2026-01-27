@@ -96,7 +96,11 @@ export default function App() {
     const stats: { date: string; maxWeight: number; estimated1RM: number; totalVolume: number }[] = [];
 
     // Sort history by date ascending
-    const sortedHistory = [...workoutHistory].sort((a, b) => new Date(a.dato).getTime() - new Date(b.dato).getTime());
+    const sortedHistory = [...workoutHistory].sort((a, b) => {
+      const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
+      const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
+      return timeA - timeB;
+    });
 
     sortedHistory.forEach(workout => {
       const ex = workout.ovelser.find(e => e.navn === exerciseName);
@@ -121,7 +125,7 @@ export default function App() {
 
         if (maxWeight > 0) {
           stats.push({
-            date: workout.dato, // Using the formatted string for now, could parse real date for chart x-axis
+            date: workout.startTime || new Date().toISOString(), // Use ISO startTime
             maxWeight,
             estimated1RM: Math.round(best1RM),
             totalVolume: volume

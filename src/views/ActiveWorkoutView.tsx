@@ -51,13 +51,20 @@ export function ActiveWorkoutView({
                     <Icons.ChevronLeft className="w-8 h-8" />
                 </button>
                 <div className="flex-1 min-w-0">
-                    <input
-                        type="text"
-                        value={workout.navn}
-                        onChange={(e) => onUpdateWorkoutName(e.target.value)}
-                        className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 text-slate-800 uppercase tracking-tighter italic placeholder-slate-300 min-w-0 p-0"
-                        placeholder="Navn på økt"
-                    />
+                    <div className="flex items-center gap-2">
+                        {workout.endTime && (
+                            <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full uppercase tracking-wider border border-amber-200">
+                                Redigerer
+                            </span>
+                        )}
+                        <input
+                            type="text"
+                            value={workout.navn}
+                            onChange={(e) => onUpdateWorkoutName(e.target.value)}
+                            className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 text-slate-800 uppercase tracking-tighter italic placeholder-slate-300 min-w-0 p-0"
+                            placeholder="Navn på økt"
+                        />
+                    </div>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{workout.dato}</p>
                 </div>
                 <button
@@ -73,7 +80,7 @@ export function ActiveWorkoutView({
                         className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-green-200 transition-all active:scale-95"
                     >
                         <Icons.CheckCircle2 className="w-5 h-5" />
-                        <span className="hidden sm:inline">Ferdig</span>
+                        <span className="hidden sm:inline">Lagre</span>
                     </button>
                 )}
             </header>
@@ -81,10 +88,11 @@ export function ActiveWorkoutView({
             <main className="max-w-xl mx-auto p-4 space-y-8 mt-6">
                 {isReordering ? (
                     <SortableList
-                        items={workout.ovelser.map(ex => ex.id)}
+                        items={workout.ovelser.map(ex => String(ex.id))}
                         onReorder={onReorder}
                         renderItem={(id) => {
-                            const ex = workout.ovelser.find(e => e.id === id);
+                            // Normalized lookup
+                            const ex = workout.ovelser.find(e => String(e.id) === String(id));
                             if (!ex) return null;
                             return (
                                 <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-200">
@@ -138,22 +146,37 @@ export function ActiveWorkoutView({
 
                                             {ex.type === 'Oppvarming' ? (
                                                 <div className="col-span-12 flex items-center justify-center py-4">
-                                                    <Stopwatch
-                                                        // Use stored duration (reps) if available, otherwise calculate from start/end
-                                                        initialSeconds={set.reps || 0}
-                                                        startTime={set.startTime}
-                                                        completedAt={set.completedAt}
-                                                        isRunning={!!set.startTime && !set.completed}
-                                                        onStart={() => onUpdateSet(exIdx, sIdx, 'startTime', new Date().toISOString())}
-                                                        onStop={() => {
-                                                            const now = new Date();
-                                                            const start = new Date(set.startTime!);
-                                                            const durationSeconds = Math.round((now.getTime() - start.getTime()) / 1000);
-                                                            onUpdateSet(exIdx, sIdx, 'completedAt', now.toISOString());
-                                                            // Save duration and TRIGGER SYNC
-                                                            onUpdateSet(exIdx, sIdx, 'reps', durationSeconds, true);
-                                                        }}
-                                                    />
+                                                    {/* Hide Stopwatch if workout is already finished (Edit Mode) */}
+                                                    {workout.endTime ? (
+                                                        <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl">
+                                                            <Icons.Activity className="w-5 h-5 text-slate-400" />
+                                                            <span className="font-black text-slate-700 text-lg">
+                                                                {(() => {
+                                                                    const totalSeconds = set.reps || 0; // Duration is stored in reps
+                                                                    const mins = Math.floor(totalSeconds / 60);
+                                                                    const secs = Math.floor(totalSeconds % 60);
+                                                                    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                                                                })()}
+                                                            </span>
+                                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Tid</span>
+                                                        </div>
+                                                    ) : (
+                                                        <Stopwatch
+                                                            initialSeconds={set.reps || 0}
+                                                            startTime={set.startTime}
+                                                            completedAt={set.completedAt}
+                                                            isRunning={!!set.startTime && !set.completed}
+                                                            onStart={() => onUpdateSet(exIdx, sIdx, 'startTime', new Date().toISOString())}
+                                                            onStop={() => {
+                                                                const now = new Date();
+                                                                const start = new Date(set.startTime!);
+                                                                const durationSeconds = Math.round((now.getTime() - start.getTime()) / 1000);
+                                                                onUpdateSet(exIdx, sIdx, 'completedAt', now.toISOString());
+                                                                // Save duration and TRIGGER SYNC
+                                                                onUpdateSet(exIdx, sIdx, 'reps', durationSeconds, true);
+                                                            }}
+                                                        />
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <>
@@ -200,16 +223,18 @@ export function ActiveWorkoutView({
                                     ))}
                                 </div>
 
-                                {ex.type !== 'Oppvarming' && (
-                                    <Button
-                                        onClick={() => onAddSet(exIdx)}
-                                        variant="secondary"
-                                        className="mt-8 w-full border-dashed border-slate-200 text-slate-400 font-bold text-xs hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50"
-                                        size="md"
-                                    >
-                                        <Icons.Plus className="w-4 h-4" /> Legg til sett
-                                    </Button>
-                                )}
+                                {
+                                    ex.type !== 'Oppvarming' && (
+                                        <Button
+                                            onClick={() => onAddSet(exIdx)}
+                                            variant="secondary"
+                                            className="mt-8 w-full border-dashed border-slate-200 text-slate-400 font-bold text-xs hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50"
+                                            size="md"
+                                        >
+                                            <Icons.Plus className="w-4 h-4" /> Legg til sett
+                                        </Button>
+                                    )
+                                }
                             </div>
                         ))}
                     </div>

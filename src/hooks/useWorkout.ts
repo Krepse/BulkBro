@@ -303,12 +303,10 @@ export function useWorkout() {
                 const nowISO = now.toISOString();
                 updatedOvelser[exIdx].sett[setIdx] = { ...set, completed: true, completedAt: nowISO };
 
-                // Side effect: Start timer (we can't put this in the reducer cleanly but it works since setRestTimer is separate)
-                // Note: In React strict mode or concurrent features, side effects in set state functions are risky.
-                // ideally we use useEffect triggered by state change, but here it's "OK" for valid user interaction.
-                // HOWEVER, better to just call setRestTimer outside? No, we need to know if we actually toggled it ON.
-                // We'll keep it here but acknowledge it's not "pure".
-                setRestTimer({ isActive: true, endTime: now.getTime() + 120000 });
+                // Side effect: Start timer ONLY if workout is active (not finished)
+                if (!prev.endTime) {
+                    setRestTimer({ isActive: true, endTime: now.getTime() + 120000 });
+                }
             } else {
                 const { completedAt, ...rest } = set;
                 updatedOvelser[exIdx].sett[setIdx] = { ...rest, completed: false };
@@ -378,11 +376,12 @@ export function useWorkout() {
 
     const finishWorkout = async () => {
         if (activeWorkout) {
-            // Filter out uncompleted sets and exercises with no completed sets
+            // Filter: Keep sets that are COMPLETED OR have DATA (kg > 0 or reps > 0 or timing data)
+            // This prevents data loss if user forgets to check the box
             const filteredExercises = activeWorkout.ovelser.map(ex => ({
                 ...ex,
-                sett: ex.sett.filter(s => s.completed)
-            })).filter(ex => ex.sett.length > 0);
+                sett: ex.sett.filter(s => s.completed || s.kg > 0 || s.reps > 0 || (s.startTime && s.completedAt))
+            })).filter(ex => ex.sett.length > 0); // Remove exercises that end up with 0 sets
 
             const finishedWorkout: Okt = {
                 ...activeWorkout,
@@ -493,16 +492,21 @@ export function useWorkout() {
         setActiveWorkout(prev => {
             if (!prev) return null;
 
-            // Map the new order IDs to the actual exercise objects
-            // We need to be careful to preserve the exercise objects exactly as they are
-            const currentExercises = new Map(prev.ovelser.map(e => [e.id, e]));
+            // Normalize IDs to string for Map lookup to handle mixed types (number vs string IDs)
+            const currentExercises = new Map(prev.ovelser.map(e => [String(e.id), e]));
 
             const reorderedExercises = newOrderIds
-                .map(id => currentExercises.get(id))
-                .filter((e): e is Ovelse => e !== undefined); // TS guard
+                .map(id => currentExercises.get(String(id)))
+                .filter((e): e is Ovelse => e !== undefined);
 
-            // If we lost any exercises (shouldn't happen), append them at the end or handle error
-            // ideally we just use the reordered list if lengths match
+            // Safety check: If we lost exercises, abort reorder to prevent data loss
+            if (reorderedExercises.length !== prev.ovelser.length) {
+                console.warn("Reorder aborted: Mismatch in exercise count", {
+                    prev: prev.ovelser.length,
+                    new: reorderedExercises.length
+                });
+                return prev;
+            }
 
             return {
                 ...prev,

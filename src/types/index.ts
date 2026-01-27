@@ -37,6 +37,7 @@ export interface StravaAnalysis {
   exerciseStats: Record<string, ExerciseStats>; // detailed stats
   setStats: Record<string, any>; // set specific stats
   workoutStats: { calories: number, intensity: number, hrSeries?: number[] };
+  exerciseOrder?: string[]; // List of Exercise IDs in correct order
 }
 
 export interface Program {

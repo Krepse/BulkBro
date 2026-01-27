@@ -60,7 +60,10 @@ export function ExerciseStatsView({
                     </div>
                     <div className="h-48 w-full">
                         <LineChart
-                            data={stats.map(s => ({ label: s.date, value: s.estimated1RM }))}
+                            data={stats.map(s => ({
+                                label: new Date(s.date).toLocaleDateString('no-NO', { day: '2-digit', month: '2-digit' }),
+                                value: s.estimated1RM
+                            }))}
                             color="#6366f1"
                         />
                     </div>
@@ -71,7 +74,10 @@ export function ExerciseStatsView({
                     <h3 className="font-black text-lg text-slate-800 uppercase tracking-tighter italic mb-6">Volum (Total Kg)</h3>
                     <div className="h-48 w-full">
                         <BarChart
-                            data={stats.map(s => ({ label: s.date, value: s.totalVolume }))}
+                            data={stats.map(s => ({
+                                label: new Date(s.date).toLocaleDateString('no-NO', { day: '2-digit', month: '2-digit' }),
+                                value: s.totalVolume
+                            }))}
                             color="#10b981"
                         />
                     </div>

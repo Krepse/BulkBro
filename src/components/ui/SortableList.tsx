@@ -80,9 +80,13 @@ export function SortableList({ items, onReorder, renderItem }: SortableListProps
         const { active, over } = event;
 
         if (over && active.id !== over.id) {
-            const oldIndex = items.indexOf(active.id);
-            const newIndex = items.indexOf(over.id);
-            onReorder(arrayMove(items, oldIndex, newIndex));
+            // Fix: Coerce to string to ensure matching works regardless of type (number vs string)
+            const oldIndex = items.findIndex(id => String(id) === String(active.id));
+            const newIndex = items.findIndex(id => String(id) === String(over.id));
+
+            if (oldIndex !== -1 && newIndex !== -1) {
+                onReorder(arrayMove(items, oldIndex, newIndex));
+            }
         }
     }
 

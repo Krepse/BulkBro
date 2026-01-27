@@ -233,15 +233,7 @@ export function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUp
                 </div>
 
                 <div className="space-y-4">
-                    {[...workout.ovelser].sort((a, b) => {
-                        const getStartTime = (ex: any) => {
-                            const times = ex.sett
-                                .filter((s: any) => s.startTime || s.completedAt)
-                                .map((s: any) => new Date(s.startTime || s.completedAt!).getTime());
-                            return times.length > 0 ? Math.min(...times) : Infinity;
-                        };
-                        return getStartTime(a) - getStartTime(b);
-                    }).map((ex, i) => (
+                    {workout.ovelser.map((ex, i) => (
                         <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100/50">
                             <div className="mb-4 pl-4 border-l-4 border-indigo-500">
                                 <div className="flex justify-between items-center">

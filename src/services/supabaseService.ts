@@ -36,26 +36,45 @@ export const supabaseService = {
         }
 
         // Map back to Okt type
-        return data.map((w: any) => ({
-            id: w.id, // now UUID
-            navn: w.name,
-            dato: new Date(w.start_time).toLocaleString('no-NO'), // approximation
-            startTime: w.start_time,
-            endTime: w.end_time,
-            stravaAnalysis: w.strava_analysis, // Map JSONB to object
-            ovelser: w.exercises.map((e: any) => ({
-                id: e.id,
-                navn: e.name,
-                type: e.type,
-                sett: e.sets.map((s: any) => ({
-                    id: s.id,
-                    kg: s.kg,
-                    reps: s.reps,
-                    completed: s.completed,
-                    completedAt: s.completed_at
-                })).sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()) // Sort sets if time available or just by insertion order logic? Array order from Supabase usually strict if not sorted.
-            }))
-        }));
+        return data.map((w: any) => {
+            const workout: Okt = {
+                id: w.id, // now UUID
+                navn: w.name,
+                dato: new Date(w.start_time).toLocaleString('no-NO'), // approximation
+                startTime: w.start_time,
+                endTime: w.end_time,
+                stravaAnalysis: w.strava_analysis, // Map JSONB to object
+                ovelser: w.exercises
+                    .sort((a: any, b: any) => {
+                        // Priority 1: Explicit Order from Metadata
+                        const order: string[] = w.strava_analysis?.exerciseOrder || [];
+                        if (order.length > 0) {
+                            const idxA = order.indexOf(String(a.id));
+                            const idxB = order.indexOf(String(b.id));
+                            // If both exist in order, sort by index
+                            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                            // If one exists, priority to it
+                            if (idxA !== -1) return -1;
+                            if (idxB !== -1) return 1;
+                        }
+                        // Priority 2: Created At (Insertion Order)
+                        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                    })
+                    .map((e: any) => ({
+                        id: e.id,
+                        navn: e.name,
+                        type: e.type,
+                        sett: e.sets.map((s: any) => ({
+                            id: s.id,
+                            kg: s.kg,
+                            reps: s.reps,
+                            completed: s.completed,
+                            completedAt: s.completed_at
+                        })).sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+                    }))
+            };
+            return workout;
+        });
     },
 
     async saveWorkout(workout: Okt, userId: string) {
@@ -68,6 +87,15 @@ export const supabaseService = {
 
         let workoutId = typeof workout.id === 'string' && (workout.id as string).length > 20 ? workout.id : undefined;
 
+        // Capture Order
+        const exerciseOrder = workout.ovelser.map(e => String(e.id));
+
+        // Prepare Metadata
+        const stravaAnalysis = {
+            ...(workout.stravaAnalysis || {}),
+            exerciseOrder
+        };
+
         // Insert Workout
         const { data: wData, error: wError } = await supabase
             .from('workouts')
@@ -77,7 +105,7 @@ export const supabaseService = {
                 name: workout.navn,
                 start_time: workout.startTime,
                 end_time: workout.endTime,
-                strava_analysis: workout.stravaAnalysis // Save JSONB
+                strava_analysis: stravaAnalysis // Save updated JSONB with order
             })
             .select()
             .single();
