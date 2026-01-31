@@ -77,6 +77,7 @@ serve(async (req) => {
         }
 
         // Exchange code for tokens with Strava
+        console.log("Exchanging code for Strava tokens...");
         const tokenResponse = await fetch("https://www.strava.com/oauth/token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -90,10 +91,15 @@ serve(async (req) => {
         });
 
         if (!tokenResponse.ok) {
-            const errorText = await tokenResponse.text();
-            console.error("Strava token exchange failed:", errorText);
+            const errorData = await tokenResponse.json().catch(() => ({}));
+            console.error("Strava token exchange failed with status:", tokenResponse.status);
+            console.error("Strava error data:", JSON.stringify(errorData));
             return new Response(
-                JSON.stringify({ error: "Failed to exchange token with Strava" }),
+                JSON.stringify({
+                    error: "Failed to exchange token with Strava",
+                    details: errorData,
+                    status: tokenResponse.status
+                }),
                 { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
         }

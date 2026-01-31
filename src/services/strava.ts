@@ -20,10 +20,11 @@ export const STRAVA_CONFIG = {
 export const getStravaAuthUrl = () => {
     const redirectUri = window.location.origin;
     const params = new URLSearchParams({
-        client_id: STRAVA_CONFIG.CLIENT_ID,
+        client_id: STRAVA_CONFIG.CLIENT_ID as string,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: 'activity:write,activity:read_all',
+        approval_prompt: 'force',
+        scope: 'activity:read_all,activity:write',
     });
     return `${STRAVA_CONFIG.AUTH_URL}?${params.toString()}`;
 };
@@ -41,11 +42,14 @@ export const exchangeToken = async (code: string): Promise<boolean> => {
         }
 
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
         const response = await fetch(`${supabaseUrl}/functions/v1/strava-token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session.access_token}`,
+                'apikey': supabaseAnonKey,
             },
             body: JSON.stringify({
                 code: code,
@@ -54,8 +58,15 @@ export const exchangeToken = async (code: string): Promise<boolean> => {
         });
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('Token exchange failed:', errorData);
+            const errorText = await response.text().catch(() => 'Could not read error body');
+            console.error('Token exchange failed with status:', response.status);
+            console.error('Error body:', errorText);
+            try {
+                const errorData = JSON.parse(errorText);
+                console.error('Parsed error:', errorData);
+            } catch (e) {
+                // Not JSON
+            }
             return false;
         }
 
@@ -105,11 +116,14 @@ export const getAccessToken = async (): Promise<string | null> => {
 const refreshAccessToken = async (sessionToken: string): Promise<string | null> => {
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
         const response = await fetch(`${supabaseUrl}/functions/v1/strava-refresh`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${sessionToken}`,
+                'apikey': supabaseAnonKey,
             },
         });
 

@@ -84,7 +84,7 @@ export default function App() {
             // Navigate to settings to show connected state
             setView('settings');
           } else {
-            console.error("Failed to exchange Strava token");
+            console.error("Failed to exchange Strava token - check browser console and Supabase logs");
             alert("Feil ved kobling til Strava. Sjekk at kontoen din er gyldig og prøv igjen.");
             // Reset so user can try again if they reload with same code (unlikely but safe)
             processingCode.current = null;
