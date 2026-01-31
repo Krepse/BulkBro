@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
 import { exchangeToken } from './services/strava';
@@ -62,23 +62,36 @@ export default function App() {
   const [draftProgramExercises, setDraftProgramExercises] = useState<string[]>([]);
 
   // --- STRAVA CALLBACK HANDLER ---
+  const processingCode = useRef<string | null>(null);
+
   useEffect(() => {
     const handleStravaCallback = async () => {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
 
-      if (code && user) {
+      // Prevent processing the same code multiple times (Strict Mode or re-renders)
+      if (code && user && processingCode.current !== code) {
+        processingCode.current = code; // Mark as processing
         console.log("Strava code detected, exchanging...");
-        const success = await exchangeToken(code, user.id);
 
-        if (success) {
-          console.log("Strava connected successfully!");
-          // Remove code from URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-          // Navigate to settings to show connected state
-          setView('settings');
-        } else {
-          console.error("Failed to exchange Strava token");
+        try {
+          const success = await exchangeToken(code, user.id);
+
+          if (success) {
+            console.log("Strava connected successfully!");
+            // Remove code from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            // Navigate to settings to show connected state
+            setView('settings');
+          } else {
+            console.error("Failed to exchange Strava token");
+            alert("Feil ved kobling til Strava. Sjekk at kontoen din er gyldig og prøv igjen.");
+            // Reset so user can try again if they reload with same code (unlikely but safe)
+            processingCode.current = null;
+          }
+        } catch (e) {
+          console.error("Error during exchange", e);
+          processingCode.current = null;
         }
       }
     };

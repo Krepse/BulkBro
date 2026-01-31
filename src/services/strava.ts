@@ -50,6 +50,7 @@ export const exchangeToken = async (code: string, userId: string): Promise<boole
                 client_secret: STRAVA_CONFIG.CLIENT_SECRET,
                 code: code,
                 grant_type: 'authorization_code',
+                redirect_uri: window.location.origin // Must match the URI used in authorization
             }),
         });
 
