@@ -72,6 +72,7 @@ export const exchangeToken = async (code: string): Promise<{ success: boolean; e
                 errorMessage = errorData.error || errorData.message || errorMessage;
                 if (errorData.details) {
                     console.error('Strava error details:', errorData.details);
+                    errorMessage += `: ${errorData.details}`;
                 }
             } catch (e) {
                 // Not JSON
