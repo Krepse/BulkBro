@@ -75,7 +75,7 @@ export default function App() {
         console.log("Strava code detected, exchanging...");
 
         try {
-          const success = await exchangeToken(code, user.id);
+          const success = await exchangeToken(code);
 
           if (success) {
             console.log("Strava connected successfully!");

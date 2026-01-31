@@ -15,6 +15,10 @@ interface ProgramFormViewProps {
     setDraftExercises: (exercises: string[]) => void;
 }
 
+// Validation constants
+const MIN_NAME_LENGTH = 2;
+const MAX_NAME_LENGTH = 50;
+
 export function ProgramFormView({
     onNavigate,
     onSave,
@@ -26,6 +30,8 @@ export function ProgramFormView({
     setDraftExercises
 }: ProgramFormViewProps) {
     const [isReordering, setIsReordering] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [touched, setTouched] = useState(false);
 
     // Initialize draft if editing
     useEffect(() => {
@@ -33,16 +39,52 @@ export function ProgramFormView({
             setDraftName(editingProgram.navn);
             setDraftExercises(editingProgram.ovelser);
         }
+        setError(null);
+        setTouched(false);
     }, [editingProgram, setDraftName, setDraftExercises]);
 
+    const validateName = (value: string): string | null => {
+        const trimmed = value.trim();
+        if (trimmed.length < MIN_NAME_LENGTH) {
+            return `Navnet må være minst ${MIN_NAME_LENGTH} tegn`;
+        }
+        if (trimmed.length > MAX_NAME_LENGTH) {
+            return `Navnet kan ikke være mer enn ${MAX_NAME_LENGTH} tegn`;
+        }
+        return null;
+    };
+
+    const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setDraftName(value);
+        if (touched) {
+            setError(validateName(value));
+        }
+    };
+
+    const handleNameBlur = () => {
+        setTouched(true);
+        setError(validateName(draftName));
+    };
+
     const handleSave = () => {
+        const trimmedName = draftName.trim();
+        const validationError = validateName(trimmedName);
+        if (validationError) {
+            setError(validationError);
+            setTouched(true);
+            return;
+        }
+
         const program: Program = {
             id: editingProgram ? editingProgram.id : Date.now(),
-            navn: draftName,
+            navn: trimmedName,
             ovelser: newProgramExercises
         };
         onSave(program);
     };
+
+    const isValid = !validateName(draftName.trim()) && newProgramExercises.length > 0;
 
     return (
         <div className="min-h-screen bg-slate-50 pb-40">
@@ -50,6 +92,7 @@ export function ProgramFormView({
                 <button
                     onClick={() => onNavigate('create_program')}
                     className="text-slate-400 p-3 hover:bg-slate-100 rounded-full transition-colors"
+                    aria-label="Gå tilbake"
                 >
                     <Icons.ChevronLeft className="w-8 h-8" />
                 </button>
@@ -57,7 +100,8 @@ export function ProgramFormView({
                 <button
                     onClick={() => setIsReordering(!isReordering)}
                     className={`ml-auto p-3 rounded-full transition-colors ${isReordering ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:bg-slate-100'}`}
-                    title="Endre rekkefølge"
+                    aria-label={isReordering ? "Ferdig med omorganisering" : "Endre rekkefølge på øvelser"}
+                    aria-pressed={isReordering}
                 >
                     {isReordering ? <Icons.Check className="w-6 h-6" /> : <Icons.Menu className="w-6 h-6" />}
                 </button>
@@ -65,14 +109,31 @@ export function ProgramFormView({
 
             <main className="max-w-xl mx-auto p-6 space-y-8 mt-6">
                 <div className="space-y-4">
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Program Navn</label>
+                    <label htmlFor="program-name" className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">
+                        Program Navn
+                    </label>
                     <input
+                        id="program-name"
                         type="text"
                         value={draftName}
-                        onChange={(e) => setDraftName(e.target.value)}
-                        className="w-full bg-white p-5 rounded-[2rem] border border-slate-200 text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300"
+                        onChange={handleNameChange}
+                        onBlur={handleNameBlur}
+                        maxLength={MAX_NAME_LENGTH + 5}
+                        className={`w-full bg-white p-5 rounded-[2rem] border text-slate-800 font-bold text-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all placeholder-slate-300 ${error && touched ? 'border-red-300 focus:border-red-500 focus:ring-red-100' : 'border-slate-200'
+                            }`}
                         placeholder="F.eks. Helkropp A"
+                        aria-invalid={!!error}
+                        aria-describedby={error ? "name-error" : undefined}
                     />
+                    {error && touched && (
+                        <p id="name-error" className="text-sm text-red-500 font-medium ml-4 flex items-center gap-2" role="alert">
+                            <Icons.AlertCircle className="w-4 h-4" />
+                            {error}
+                        </p>
+                    )}
+                    <p className="text-xs text-slate-400 ml-4">
+                        {draftName.trim().length}/{MAX_NAME_LENGTH} tegn
+                    </p>
                 </div>
 
                 <div className="space-y-4">
@@ -96,6 +157,7 @@ export function ProgramFormView({
                                 <button
                                     onClick={() => setDraftExercises(newProgramExercises.filter((_, i) => i !== idx))}
                                     className="text-slate-300 hover:text-red-400 p-2"
+                                    aria-label={`Fjern ${exName}`}
                                 >
                                     <Icons.Trash2 className="w-5 h-5" />
                                 </button>
@@ -115,7 +177,7 @@ export function ProgramFormView({
 
                 <Button
                     onClick={handleSave}
-                    disabled={!draftName || newProgramExercises.length === 0}
+                    disabled={!isValid}
                     variant="slate"
                     className="mt-12 w-full"
                 >

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Icons } from '../components/ui/Icons';
-import { isStravaConnected, disconnectStrava } from '../services/strava';
+import { getStravaAuthUrl, isStravaConnected, disconnectStrava } from '../services/strava';
 import { supabase } from '../lib/supabase';
 import { Button } from '../components/ui/Button';
 
@@ -27,18 +27,14 @@ export function SettingsView({ onNavigate, userEmail, onSignOut }: SettingsViewP
     // Admin State
     const [showAdminModal, setShowAdminModal] = useState(false);
     const [adminFeedbackList, setAdminFeedbackList] = useState<Feedback[]>([]);
-    const isAdmin = userEmail?.toLowerCase() === 'stianberg2@gmail.com';
+    const isAdmin = userEmail?.toLowerCase() === import.meta.env.VITE_ADMIN_EMAIL?.toLowerCase();
 
     useEffect(() => {
         isStravaConnected().then(setStravaConnected);
     }, []);
 
     const handleConnectStrava = () => {
-        const clientId = import.meta.env.VITE_STRAVA_CLIENT_ID;
-        // Dynamic redirect URI based on current origin (works for localhost and Netlify)
-        const redirectUri = window.location.origin;
-        const scope = "activity:read_all,activity:write";
-        window.location.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=${scope}`;
+        window.location.href = getStravaAuthUrl();
     };
 
     const handleDisconnectStrava = async () => {

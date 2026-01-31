@@ -10,56 +10,55 @@ export interface StravaActivity {
     description: string;
 }
 
+// Configuration - Client ID is safe to expose, secret is now server-side only
 export const STRAVA_CONFIG = {
     CLIENT_ID: import.meta.env.VITE_STRAVA_CLIENT_ID,
-    CLIENT_SECRET: import.meta.env.VITE_STRAVA_CLIENT_SECRET,
-    REDIRECT_URI: import.meta.env.VITE_STRAVA_REDIRECT_URI,
+    // CLIENT_SECRET removed - now handled by Edge Function
     AUTH_URL: 'https://www.strava.com/oauth/authorize',
-    TOKEN_URL: 'https://www.strava.com/oauth/token',
 };
 
 export const getStravaAuthUrl = () => {
+    const redirectUri = window.location.origin;
     const params = new URLSearchParams({
         client_id: STRAVA_CONFIG.CLIENT_ID,
-        redirect_uri: STRAVA_CONFIG.REDIRECT_URI, // This should match what's set in App.tsx settings usually window.location.origin
+        redirect_uri: redirectUri,
         response_type: 'code',
         scope: 'activity:write,activity:read_all',
     });
-    // Note: redirect_uri is partially dynamic in App.tsx, but base oauth url is consistent
     return `${STRAVA_CONFIG.AUTH_URL}?${params.toString()}`;
 };
 
-interface StravaTokenResponse {
-    token_type: string;
-    expires_at: number;
-    expires_in: number;
-    refresh_token: string;
-    access_token: string;
-    athlete: any;
-}
-
-export const exchangeToken = async (code: string, userId: string): Promise<boolean> => {
+/**
+ * Exchange authorization code for tokens via Edge Function
+ * The client secret is kept secure on the server side
+ */
+export const exchangeToken = async (code: string): Promise<boolean> => {
     try {
-        const response = await fetch(STRAVA_CONFIG.TOKEN_URL, {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            console.error('No active session for token exchange');
+            return false;
+        }
+
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const response = await fetch(`${supabaseUrl}/functions/v1/strava-token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-                client_id: STRAVA_CONFIG.CLIENT_ID,
-                client_secret: STRAVA_CONFIG.CLIENT_SECRET,
                 code: code,
-                grant_type: 'authorization_code',
-                redirect_uri: window.location.origin // Must match the URI used in authorization
+                redirect_uri: window.location.origin,
             }),
         });
 
         if (!response.ok) {
-            throw new Error('Failed to exchange token');
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Token exchange failed:', errorData);
+            return false;
         }
 
-        const data: StravaTokenResponse = await response.json();
-        await saveTokens(data, userId);
         return true;
     } catch (error) {
         console.error('Strava token exchange error:', error);
@@ -67,9 +66,10 @@ export const exchangeToken = async (code: string, userId: string): Promise<boole
     }
 };
 
-// Utility to get token, refreshing if necessary
+/**
+ * Get access token, refreshing via Edge Function if necessary
+ */
 export const getAccessToken = async (): Promise<string | null> => {
-    // We need the current user to get their token
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return null;
     const userId = session.user.id;
@@ -86,50 +86,39 @@ export const getAccessToken = async (): Promise<string | null> => {
         return null;
     }
 
-    const { access_token, refresh_token, expires_at } = integration;
+    const { access_token, expires_at } = integration;
 
     // Check if expired (or expiring in next 5 mins)
     const now = Math.floor(Date.now() / 1000);
     if (now >= parseInt(expires_at) - 300) {
-        console.log("Strava token expired, refreshing...");
-        const newAccessToken = await refreshAccessToken(refresh_token, userId);
-        if (newAccessToken) {
-            return newAccessToken;
-        } else {
-            // If refresh fails, log out (delete integration)
-            await disconnectStrava();
-            return null;
-        }
+        console.log("Strava token expired, refreshing via Edge Function...");
+        const newAccessToken = await refreshAccessToken(session.access_token);
+        return newAccessToken;
     }
 
     return access_token;
 };
 
-const refreshAccessToken = async (refreshToken: string, userId: string): Promise<string | null> => {
-    const clientId = import.meta.env.VITE_STRAVA_CLIENT_ID;
-    const clientSecret = import.meta.env.VITE_STRAVA_CLIENT_SECRET;
-
-    if (!clientId || !clientSecret) {
-        console.error("Missing Strava keys");
-        return null;
-    }
-
+/**
+ * Refresh token via Edge Function (keeps secret server-side)
+ */
+const refreshAccessToken = async (sessionToken: string): Promise<string | null> => {
     try {
-        const response = await fetch('https://www.strava.com/oauth/token', {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const response = await fetch(`${supabaseUrl}/functions/v1/strava-refresh`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                client_id: clientId,
-                client_secret: clientSecret,
-                refresh_token: refreshToken,
-                grant_type: 'refresh_token'
-            })
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sessionToken}`,
+            },
         });
 
-        if (!response.ok) throw new Error('Failed to refresh token');
+        if (!response.ok) {
+            console.error('Token refresh failed');
+            return null;
+        }
 
-        const data: StravaTokenResponse = await response.json();
-        await saveTokens(data, userId);
+        const data = await response.json();
         return data.access_token;
     } catch (error) {
         console.error("Error refreshing token:", error);
@@ -138,7 +127,7 @@ const refreshAccessToken = async (refreshToken: string, userId: string): Promise
 };
 
 export const getActivities = async (after: number, before: number) => {
-    const token = await getAccessToken(); // Async fetch
+    const token = await getAccessToken();
     if (!token) return [];
 
     try {
@@ -173,25 +162,6 @@ export const getActivityStreams = async (activityId: number) => {
     }
 };
 
-const saveTokens = async (data: StravaTokenResponse, userId: string) => {
-    // Upsert into Supabase
-    const { error } = await supabase
-        .from('user_integrations')
-        .upsert({
-            user_id: userId,
-            provider: 'strava',
-            access_token: data.access_token,
-            refresh_token: data.refresh_token,
-            expires_at: data.expires_at,
-            athlete_data: data.athlete,
-            updated_at: new Date().toISOString() // trigger update
-        }, { onConflict: 'user_id' });
-
-    if (error) {
-        console.error("Failed to save tokens to DB:", error);
-    }
-};
-
 export const isStravaConnected = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return false;
@@ -217,24 +187,6 @@ export const disconnectStrava = async () => {
         .eq('provider', 'strava');
 };
 
-export const mapWorkoutToStravaPayload = (workout: any): StravaActivity => {
-    const exerciseSummary = workout.ovelser
-        ? workout.ovelser.map((ex: any) => {
-            const bestSet = ex.sett.reduce((max: number, curr: any) => Math.max(max, curr.kg), 0);
-            return `${ex.navn}: ${ex.sett?.length || 0} sets (Best: ${bestSet}kg)`;
-        }).join('\n')
-        : 'No exercises';
-
-    return {
-        name: `BulkBro: ${workout.navn}`,
-        type: 'WeightTraining',
-        start_date: new Date().toISOString(),
-        start_date_local: new Date().toISOString(),
-        elapsed_time: 3600, // Default 1 hour if not tracked
-        description: `Completed with BulkBro 💪\n\n${exerciseSummary}\n\n#bulkbro`,
-    };
-};
-
 export const getRecentActivities = async (days: number = 7): Promise<any[]> => {
     const token = await getAccessToken();
     if (!token) return [];
@@ -257,16 +209,13 @@ export const calculateRecoveryStatus = (activities: any[]): 'JA' | 'OK' | 'NEI' 
         if (act.suffer_score) {
             load = act.suffer_score;
         } else if (act.average_heartrate) {
-            // Estimate stress: (Avg HR / 150) * duration. 150 is approx zone 2/3 boundary for many.
             load = (act.average_heartrate / 150) * durationMins;
         } else {
-            // Fallback: simple duration based loan (assume moderate intensity)
             load = durationMins * 0.8;
         }
         totalLoad += load;
     }
 
-    // Thresholds (Tunable) based on 7-day Load accumulation
     if (totalLoad > 600) return 'NEI';
     if (totalLoad > 300) return 'OK';
     return 'JA';
@@ -280,19 +229,14 @@ export const findOverlappingActivity = async (startTime: string, endTime: string
     const start = new Date(startTime).getTime();
     const end = new Date(endTime).getTime();
 
-    // Fetch activities from a bit before start to now
-    // convert to seconds
     const after = Math.floor((start - 3600 * 1000) / 1000);
     const before = Math.floor((end + 3600 * 1000) / 1000);
 
     const activities = await getActivities(after, before);
 
-    // Find one that overlaps significantly
     return activities.find((act: any) => {
         const actStart = new Date(act.start_date).getTime();
         const actEnd = actStart + (act.elapsed_time * 1000);
-
-        // Simple overlap check
         return (start < actEnd && end > actStart);
     });
 };
@@ -301,31 +245,24 @@ export const findOverlappingActivity = async (startTime: string, endTime: string
 export interface ExerciseStats {
     avgHr?: number;
     maxHr?: number;
-    intensity?: number; // 0-5
+    intensity?: number;
     calories?: number;
 }
 
-
-// Re-write to include activityStartDate
 export const calculateDetailedStats = (workout: any, activity: any, streams: any) => {
     const exerciseStats: Record<string, any> = {};
     const setStats: Record<string, any> = {};
 
-    // Basic stats from activity
     let totalCalories = activity.calories || 0;
 
-    // Fallback if calories missing (Common in WeightTraining without power meter/user weight)
     if (!totalCalories) {
         if (activity.kilojoules) {
             totalCalories = activity.kilojoules / 4.184;
         } else {
-            // Estimate!
             const durationMins = (activity.moving_time || activity.elapsed_time) / 60;
             if (activity.average_heartrate) {
-                // Estimate: (AvgHR / 150) * ~600kcal/hr
                 totalCalories = (activity.average_heartrate / 150) * 10 * durationMins;
             } else {
-                // Generic Weight Lifting: ~350 kcal/hr
                 totalCalories = 6 * durationMins;
             }
         }
@@ -337,10 +274,9 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
         totalIntensity = calculateIntensity(activity.average_heartrate);
     }
 
-    // If streams are available, try to do detailed analysis
     if (streams && streams.time && streams.heartrate) {
         const actStart = new Date(activity.start_date).getTime();
-        const timeStream = streams.time.data; // seconds offset
+        const timeStream = streams.time.data;
         const hrStream = streams.heartrate.data;
 
         workout.ovelser.forEach((ex: any) => {
@@ -348,16 +284,13 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
             let exHrCount = 0;
             let exMaxHr = 0;
 
-            // Iterate sets to find time ranges
             ex.sett.forEach((set: any) => {
                 if (set.completedAt) {
                     const sEnd = new Date(set.completedAt).getTime();
-                    // If no startTime, assume set took 60 seconds (standard lifting set duration estimate)
                     const sStart = set.startTime
                         ? new Date(set.startTime).getTime()
                         : sEnd - 60000;
 
-                    // Convert to activity-relative seconds
                     const relStart = (sStart - actStart) / 1000;
                     const relEnd = (sEnd - actStart) / 1000;
 
@@ -373,7 +306,7 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
                             setHrCount++;
                             if (hr > setMax) setMax = hr;
                         }
-                        if (t > relEnd) break; // Optimized assumption: sorted
+                        if (t > relEnd) break;
                     }
 
                     if (setHrCount > 0) {
@@ -398,7 +331,6 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
             }
         });
 
-        // Fallback intensity if activity avg unavailable but we calculated exercise avg?
         if (totalIntensity === 0) {
             const intensities = Object.values(exerciseStats).map((s: any) => s.intensity);
             if (intensities.length > 0) {
@@ -417,7 +349,6 @@ export const calculateDetailedStats = (workout: any, activity: any, streams: any
 };
 
 const calculateIntensity = (hr: number) => {
-    // Very rough zones without user max HR
     if (hr < 100) return 1;
     if (hr < 120) return 2;
     if (hr < 140) return 3;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Okt, Program, Exercise, Ovelse, ExerciseType } from '../types';
 import { useAuth } from './useAuth';
 import { supabaseService } from '../services/supabaseService';
@@ -81,8 +81,16 @@ export function useWorkout() {
     }, [activeWorkout]);
 
     // --- EFFECTS: SYNC WITH SUPABASE ---
+    const isSyncingRef = useRef(false);
+
     useEffect(() => {
         if (!user) return;
+
+        // Prevent concurrent syncs
+        if (isSyncingRef.current) return;
+
+        let isMounted = true;
+        isSyncingRef.current = true;
 
         const sync = async () => {
             // 1. Sync Workouts (Cloud-First + Migration)
@@ -95,31 +103,41 @@ export function useWorkout() {
                 if (localOnlyWorkouts.length > 0) {
                     console.log(`Syncing ${localOnlyWorkouts.length} local workouts to cloud...`);
                     for (const workout of localOnlyWorkouts) {
+                        if (!isMounted) break;
                         await supabaseService.saveWorkout(workout, user.id);
                     }
                     console.log("Migration complete.");
                 }
 
                 // B. Fetch Truth from Verified Cloud
+                if (!isMounted) return;
                 const remoteWorkouts = await supabaseService.fetchWorkouts(user.id);
                 // Always update local state to match Cloud (Cloud is Master)
                 // This replaces the numeric-ID workouts with their new UUID versions
-                setWorkoutHistory(remoteWorkouts);
+                if (isMounted) setWorkoutHistory(remoteWorkouts);
 
             } catch (err) {
                 console.error("Sync error:", err);
             }
 
             // 2. Programs (Keep Sync Logic)
+            if (!isMounted) return;
             const pSync = await supabaseService.syncPrograms(programs, user.id);
-            setPrograms(pSync.programs);
+            if (isMounted) setPrograms(pSync.programs);
 
             // 3. Exercises (Keep Sync Logic)
+            if (!isMounted) return;
             const eSync = await supabaseService.syncExercises(customExercises, user.id);
-            setCustomExercises(eSync.exercises);
+            if (isMounted) setCustomExercises(eSync.exercises);
         };
 
-        sync();
+        sync().finally(() => {
+            isSyncingRef.current = false;
+        });
+
+        return () => {
+            isMounted = false;
+        };
     }, [user]); // Run on mount/login
 
 

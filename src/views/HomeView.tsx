@@ -73,14 +73,20 @@ export function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
     });
 
     useEffect(() => {
+        let isMounted = true;
+
         async function checkRecovery() {
             const connected = await isStravaConnected();
+            if (!isMounted) return;
+
             if (!connected) {
                 setRecoveryStatus('OFFLINE');
                 return;
             }
             try {
                 const activities = await getRecentActivities();
+                if (!isMounted) return;
+
                 let status = calculateRecoveryStatus(activities);
 
                 // If user has trained today (locally), we conservatively downgrade the recovery status
@@ -95,10 +101,12 @@ export function HomeView({ onNavigate, workoutHistory }: HomeViewProps) {
                 setRecoveryStatus(status);
             } catch (e) {
                 console.error(e);
-                setRecoveryStatus('OFFLINE');
+                if (isMounted) setRecoveryStatus('OFFLINE');
             }
         }
         checkRecovery();
+
+        return () => { isMounted = false; };
     }, [hasTrainedToday]);
 
     return (
