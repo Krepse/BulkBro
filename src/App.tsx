@@ -75,9 +75,9 @@ export default function App() {
         console.log("Strava code detected, exchanging...");
 
         try {
-          const success = await exchangeToken(code);
+          const result = await exchangeToken(code);
 
-          if (success) {
+          if (result.success) {
             console.log("Strava connected successfully!");
             // Remove code from URL
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -85,12 +85,13 @@ export default function App() {
             setView('settings');
           } else {
             console.error("Failed to exchange Strava token - check browser console and Supabase logs");
-            alert("Feil ved kobling til Strava. Sjekk at kontoen din er gyldig og prøv igjen.");
+            alert(`Feil ved kobling til Strava: ${result.error || 'Ukjent feil'}`);
             // Reset so user can try again if they reload with same code (unlikely but safe)
             processingCode.current = null;
           }
-        } catch (e) {
+        } catch (e: any) {
           console.error("Error during exchange", e);
+          alert(`En uventet feil oppstod: ${e.message}`);
           processingCode.current = null;
         }
       }

@@ -33,16 +33,20 @@ export const getStravaAuthUrl = () => {
  * Exchange authorization code for tokens via Edge Function
  * The client secret is kept secure on the server side
  */
-export const exchangeToken = async (code: string): Promise<boolean> => {
+export const exchangeToken = async (code: string): Promise<{ success: boolean; error?: string }> => {
     try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
             console.error('No active session for token exchange');
-            return false;
+            return { success: false, error: 'Ingen aktiv sesjon. Logg inn på nytt.' };
         }
 
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        const redirectUri = window.location.origin;
+
+        console.log('Exchanging token with redirect_uri:', redirectUri);
+        console.log('Current window.location.href:', window.location.href);
 
         const response = await fetch(`${supabaseUrl}/functions/v1/strava-token`, {
             method: 'POST',
@@ -53,27 +57,32 @@ export const exchangeToken = async (code: string): Promise<boolean> => {
             },
             body: JSON.stringify({
                 code: code,
-                redirect_uri: window.location.origin,
+                redirect_uri: redirectUri,
             }),
         });
 
         if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Could not read error body');
+            const errorText = await response.text().catch(() => 'Kunne ikke lese feilmelding');
             console.error('Token exchange failed with status:', response.status);
             console.error('Error body:', errorText);
+
+            let errorMessage = 'Kunne ikke koble til Strava';
             try {
                 const errorData = JSON.parse(errorText);
-                console.error('Parsed error:', errorData);
+                errorMessage = errorData.error || errorData.message || errorMessage;
+                if (errorData.details) {
+                    console.error('Strava error details:', errorData.details);
+                }
             } catch (e) {
                 // Not JSON
             }
-            return false;
+            return { success: false, error: errorMessage };
         }
 
-        return true;
-    } catch (error) {
+        return { success: true };
+    } catch (error: any) {
         console.error('Strava token exchange error:', error);
-        return false;
+        return { success: false, error: error.message || 'Nettverksfeil ved kobling til Strava' };
     }
 };
 
