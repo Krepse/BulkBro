@@ -98,7 +98,7 @@ export default function App() {
     };
 
     handleStravaCallback();
-  }, [user]);
+  }, [user?.id]); // Only re-run when user ID changes
 
   // Auth Guard
   if (!user) {
