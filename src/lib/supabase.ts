@@ -9,7 +9,20 @@ const isConfigured = supabaseUrl &&
     supabaseAnonKey !== 'YOUR_SUPABASE_ANON_KEY_HERE';
 
 export const supabase = isConfigured
-    ? createClient(supabaseUrl, supabaseAnonKey)
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+            autoRefreshToken: true,
+            persistSession: true,
+            detectSessionInUrl: true,
+            // Reduce frequency of token refresh checks
+            storageKey: 'bulkbro-auth',
+        },
+        global: {
+            headers: {
+                'x-client-info': 'bulkbro-app',
+            },
+        },
+    })
     : {
         auth: {
             getSession: async () => {
