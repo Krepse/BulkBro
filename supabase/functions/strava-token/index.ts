@@ -33,6 +33,7 @@ serve(async (req) => {
         // Get the authorization header to identify the user
         const authHeader = req.headers.get("Authorization");
         if (!authHeader) {
+            console.error("Missing Authorization header in request");
             return new Response(
                 JSON.stringify({ error: "Missing authorization header" }),
                 { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -49,8 +50,12 @@ serve(async (req) => {
         // Verify the user
         const { data: { user }, error: userError } = await supabase.auth.getUser();
         if (userError || !user) {
+            console.error("Supabase auth error:", userError?.message || "No user found");
             return new Response(
-                JSON.stringify({ error: "Invalid user token" }),
+                JSON.stringify({
+                    error: "Invalid user token",
+                    details: userError?.message || "User not found in session"
+                }),
                 { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
         }
