@@ -87,10 +87,21 @@ export const exchangeToken = async (code: string): Promise<{ success: boolean; e
     }
 };
 
+// Cache for access token to prevent repeated database queries
+let tokenCache: { token: string | null; expiresAt: number; cachedAt: number } | null = null;
+const TOKEN_CACHE_DURATION = 30000; // 30 seconds
+
 /**
  * Get access token, refreshing via Edge Function if necessary
  */
 export const getAccessToken = async (): Promise<string | null> => {
+    const now = Date.now();
+
+    // Return cached token if valid and fresh (less than 30 seconds old)
+    if (tokenCache && (now - tokenCache.cachedAt) < TOKEN_CACHE_DURATION) {
+        return tokenCache.token;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return null;
     const userId = session.user.id;
@@ -104,18 +115,34 @@ export const getAccessToken = async (): Promise<string | null> => {
         .single();
 
     if (error || !integration) {
+        tokenCache = null;
         return null;
     }
 
     const { access_token, expires_at } = integration;
 
     // Check if expired (or expiring in next 5 mins)
-    const now = Math.floor(Date.now() / 1000);
-    if (now >= parseInt(expires_at) - 300) {
+    const nowInSeconds = Math.floor(now / 1000);
+    if (nowInSeconds >= parseInt(expires_at) - 300) {
         console.log("Strava token expired, refreshing via Edge Function...");
         const newAccessToken = await refreshAccessToken(session.access_token);
+
+        // Cache the new token
+        tokenCache = {
+            token: newAccessToken,
+            expiresAt: parseInt(expires_at),
+            cachedAt: now
+        };
+
         return newAccessToken;
     }
+
+    // Cache the token
+    tokenCache = {
+        token: access_token,
+        expiresAt: parseInt(expires_at),
+        cachedAt: now
+    };
 
     return access_token;
 };
