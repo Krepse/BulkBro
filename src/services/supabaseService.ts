@@ -35,8 +35,10 @@ export const supabaseService = {
             return [];
         }
 
+        console.log('🔍 Raw Supabase data:', data?.length, 'workouts', data);
+
         // Map back to Okt type
-        return data.map((w: any) => {
+        const mapped = data.map((w: any) => {
             const workout: Okt = {
                 id: w.id, // now UUID
                 navn: w.name,
@@ -75,6 +77,9 @@ export const supabaseService = {
             };
             return workout;
         });
+
+        console.log('🔄 Mapped workouts:', mapped.length, mapped);
+        return mapped;
     },
 
     async saveWorkout(workout: Okt, userId: string) {

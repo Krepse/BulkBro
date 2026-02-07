@@ -84,10 +84,14 @@ export function useWorkout() {
     const isSyncingRef = useRef(false);
 
     useEffect(() => {
+        console.log('🔄 Sync effect triggered. User:', user?.email || 'null');
         if (!user) return;
 
         // Prevent concurrent syncs
-        if (isSyncingRef.current) return;
+        if (isSyncingRef.current) {
+            console.log('⏸️ Sync already in progress, skipping');
+            return;
+        }
 
         let isMounted = true;
         isSyncingRef.current = true;
@@ -112,9 +116,16 @@ export function useWorkout() {
                 // B. Fetch Truth from Verified Cloud
                 if (!isMounted) return;
                 const remoteWorkouts = await supabaseService.fetchWorkouts(user.id);
+                console.log('📥 Fetched workouts from Supabase:', remoteWorkouts.length, remoteWorkouts);
+                console.log('🔍 Checking isMounted before setting state:', isMounted);
                 // Always update local state to match Cloud (Cloud is Master)
                 // This replaces the numeric-ID workouts with their new UUID versions
-                if (isMounted) setWorkoutHistory(remoteWorkouts);
+                if (isMounted) {
+                    console.log('✅ Setting workoutHistory state with', remoteWorkouts.length, 'workouts');
+                    setWorkoutHistory(remoteWorkouts);
+                } else {
+                    console.error('❌ CANNOT SET STATE - component unmounted (isMounted is false)');
+                }
 
             } catch (err) {
                 console.error("Sync error:", err);
@@ -138,20 +149,22 @@ export function useWorkout() {
         return () => {
             isMounted = false;
         };
-    }, [user]); // Run on mount/login
+    }, [user?.id]); // Run when user ID changes (login/logout)
 
 
     // --- EFFECTS: CLEAR STATE ON LOGOUT ---
     useEffect(() => {
+        console.log('👤 User effect triggered. User:', user ? 'EXISTS' : 'NULL');
         if (!user) {
+            console.log('🗑️ CLEARING ALL STATE - user is null');
             setWorkoutHistory([]);
             setPrograms([]);
-            // We don't necessarily clear customExercises immediately to avoid flash, 
+            // We don't necessarily clear customExercises immediately to avoid flash,
             // but for security/correctness across users, we should.
             setCustomExercises([]);
             setActiveWorkout(null);
         }
-    }, [user]);
+    }, [user?.id]); // Only trigger when user ID changes
 
     // --- ACTIONS ---
 
