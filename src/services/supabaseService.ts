@@ -24,7 +24,7 @@ export const supabaseService = {
                 *,
                 exercises (
                     *,
-                    sett (*)
+                    sets (*)
                 )
             `)
             .eq('user_id', userId)
@@ -64,7 +64,7 @@ export const supabaseService = {
                         id: e.id,
                         navn: e.name,
                         type: e.type,
-                        sett: (e.sett || []).map((s: any) => ({
+                        sett: (e.sets || []).map((s: any) => ({
                             id: s.id,
                             kg: s.kg,
                             reps: s.reps,
