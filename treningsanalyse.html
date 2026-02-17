@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BulkBro - Treningsanalyse</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        h2 { color: #555; margin-top: 30px; }
+        .stat {
+            background: #f0f0f0;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .exercise-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #fafafa;
+            border-left: 3px solid #4CAF50;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #output {
+            white-space: pre-wrap;
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏋️ BulkBro Treningsanalyse</h1>
+        
+        <div class="warning">
+            <strong>Viktig:</strong> Dette verktøyet leser treningsdata fra din nettlesers localStorage. 
+            Åpne denne filen i samme nettleser som du bruker BulkBro-appen i.
+        </div>
+
+        <button onclick="analyzeWorkouts()">📊 Analyser min treningshistorikk</button>
+        
+        <div id="output"></div>
+    </div>
+
+    <script>
+        function analyzeWorkouts() {
+            const output = document.getElementById('output');
+            
+            try {
+                // Read data from localStorage
+                const workoutHistoryStr = localStorage.getItem('workoutHistory');
+                const programsStr = localStorage.getItem('programs');
+                const customExercisesStr = localStorage.getItem('customExercises');
+                
+                if (!workoutHistoryStr) {
+                    output.innerHTML = '❌ Ingen treningshistorikk funnet i localStorage.\n\nSjekk at:\n1. Du har brukt BulkBro-appen i denne nettleseren\n2. Du har fullført minst én treningsøkt\n3. Du åpner denne filen i samme nettleser som du bruker appen i';
+                    return;
+                }
+
+                const workoutHistory = JSON.parse(workoutHistoryStr);
+                const programs = programsStr ? JSON.parse(programsStr) : [];
+                const customExercises = customExercisesStr ? JSON.parse(customExercisesStr) : [];
+
+                // Analyze the data
+                const analysis = analyzeData(workoutHistory);
+                
+                // Generate report
+                const report = generateReport(analysis, workoutHistory, programs);
+                
+                output.innerHTML = report;
+                
+                // Also log to console for debugging
+                console.log('Workout History:', workoutHistory);
+                console.log('Analysis:', analysis);
+                
+            } catch (error) {
+                output.innerHTML = '❌ Feil ved lesing av data: ' + error.message;
+                console.error(error);
+            }
+        }
+
+        function analyzeData(workouts) {
+            const analysis = {
+                totalWorkouts: workouts.length,
+                exerciseFrequency: {},
+                volumeByExercise: {},
+                workoutsByMonth: {},
+                totalSets: 0,
+                totalReps: 0,
+                totalVolume: 0,
+                dateRange: {
+                    first: null,
+                    last: null
+                }
+            };
+
+            if (workouts.length === 0) return analysis;
+
+            // Sort workouts by date
+            const sortedWorkouts = [...workouts].sort((a, b) => {
+                const dateA = new Date(a.startTime || a.dato);
+                const dateB = new Date(b.startTime || b.dato);
+                return dateA - dateB;
+            });
+
+            analysis.dateRange.first = sortedWorkouts[0].startTime || sortedWorkouts[0].dato;
+            analysis.dateRange.last = sortedWorkouts[sortedWorkouts.length - 1].startTime || sortedWorkouts[sortedWorkouts.length - 1].dato;
+
+            workouts.forEach(workout => {
+                const workoutDate = new Date(workout.startTime || workout.dato);
+                const monthKey = `${workoutDate.getFullYear()}-${String(workoutDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                analysis.workoutsByMonth[monthKey] = (analysis.workoutsByMonth[monthKey] || 0) + 1;
+
+                if (workout.ovelser) {
+                    workout.ovelser.forEach(exercise => {
+                        const exerciseName = exercise.navn;
+                        
+                        analysis.exerciseFrequency[exerciseName] = (analysis.exerciseFrequency[exerciseName] || 0) + 1;
+
+                        if (exercise.sett) {
+                            exercise.sett.forEach(set => {
+                                if (set.completed) {
+                                    analysis.totalSets++;
+                                    analysis.totalReps += set.reps;
+                                    const volume = set.kg * set.reps;
+                                    analysis.totalVolume += volume;
+                                    
+                                    if (!analysis.volumeByExercise[exerciseName]) {
+                                        analysis.volumeByExercise[exerciseName] = {
+                                            totalVolume: 0,
+                                            totalSets: 0,
+                                            maxWeight: 0
+                                        };
+                                    }
+                                    
+                                    analysis.volumeByExercise[exerciseName].totalVolume += volume;
+                                    analysis.volumeByExercise[exerciseName].totalSets++;
+                                    analysis.volumeByExercise[exerciseName].maxWeight = Math.max(
+                                        analysis.volumeByExercise[exerciseName].maxWeight,
+                                        set.kg
+                                    );
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            return analysis;
+        }
+
+        function generateReport(analysis, workouts, programs) {
+            let report = '<h2>📈 Treningsanalyse</h2>\n\n';
+            
+            report += '<div class="stat"><strong>Totalt antall økter:</strong> ' + analysis.totalWorkouts + '</div>';
+            
+            if (analysis.dateRange.first && analysis.dateRange.last) {
+                const firstDate = new Date(analysis.dateRange.first).toLocaleDateString('nb-NO');
+                const lastDate = new Date(analysis.dateRange.last).toLocaleDateString('nb-NO');
+                report += '<div class="stat"><strong>Periode:</strong> ' + firstDate + ' - ' + lastDate + '</div>';
+            }
+            
+            report += '<div class="stat"><strong>Totalt antall sett:</strong> ' + analysis.totalSets + '</div>';
+            report += '<div class="stat"><strong>Totalt antall repetisjoner:</strong> ' + analysis.totalReps.toLocaleString('nb-NO') + '</div>';
+            report += '<div class="stat"><strong>Total volum:</strong> ' + Math.round(analysis.totalVolume).toLocaleString('nb-NO') + ' kg</div>';
+
+            // Workouts per month
+            report += '<h2>📅 Økter per måned</h2>';
+            const sortedMonths = Object.entries(analysis.workoutsByMonth).sort();
+            sortedMonths.forEach(([month, count]) => {
+                report += '<div class="exercise-item">' + month + ': <strong>' + count + ' økter</strong></div>';
+            });
+
+            // Most trained exercises
+            report += '<h2>🏆 Mest trente øvelser</h2>';
+            const sortedExercises = Object.entries(analysis.exerciseFrequency)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+            
+            sortedExercises.forEach(([exercise, count], index) => {
+                report += '<div class="exercise-item">' + (index + 1) + '. <strong>' + exercise + '</strong>: ' + count + ' økter</div>';
+            });
+
+            // Exercises by volume
+            report += '<h2>💪 Øvelser etter volum</h2>';
+            const sortedVolume = Object.entries(analysis.volumeByExercise)
+                .sort((a, b) => b[1].totalVolume - a[1].totalVolume)
+                .slice(0, 10);
+            
+            sortedVolume.forEach(([exercise, data], index) => {
+                report += '<div class="exercise-item">';
+                report += (index + 1) + '. <strong>' + exercise + '</strong><br>';
+                report += '&nbsp;&nbsp;&nbsp;Total volum: ' + Math.round(data.totalVolume).toLocaleString('nb-NO') + ' kg<br>';
+                report += '&nbsp;&nbsp;&nbsp;Antall sett: ' + data.totalSets + '<br>';
+                report += '&nbsp;&nbsp;&nbsp;Maks vekt: ' + data.maxWeight + ' kg';
+                report += '</div>';
+            });
+
+            // Feedback
+            report += '<h2>💡 Tilbakemelding på treningsoppsettet</h2>';
+            report += generateFeedback(analysis, sortedExercises, sortedVolume);
+
+            return report;
+        }
+
+        function generateFeedback(analysis, sortedExercises, sortedVolume) {
+            let feedback = '';
+            
+            // Check workout frequency
+            const months = Object.keys(analysis.workoutsByMonth).length;
+            const avgWorkoutsPerMonth = analysis.totalWorkouts / months;
+            
+            feedback += '<h3>📊 Treningsfrekvens</h3>';
+            if (avgWorkoutsPerMonth >= 12) {
+                feedback += '<div class="stat" style="border-left: 3px solid #4CAF50;">✅ <strong>Utmerket frekvens!</strong> Du trener i gjennomsnitt ' + avgWorkoutsPerMonth.toFixed(1) + ' ganger per måned (ca ' + (avgWorkoutsPerMonth / 4).toFixed(1) + ' ganger per uke). Dette er en solid treningsfrekvens.</div>';
+            } else if (avgWorkoutsPerMonth >= 8) {
+                feedback += '<div class="stat" style="border-left: 3px solid #FFC107;">✅ <strong>God frekvens.</strong> Du trener i gjennomsnitt ' + avgWorkoutsPerMonth.toFixed(1) + ' ganger per måned. Dette er bra, men du kan vurdere å øke til 3-4 økter per uke for raskere fremgang.</div>';
+            } else {
+                feedback += '<div class="stat" style="border-left: 3px solid #f44336;">⚠️ <strong>Lav frekvens.</strong> Du trener i gjennomsnitt ' + avgWorkoutsPerMonth.toFixed(1) + ' ganger per måned. For optimal fremgang anbefales 3-4 økter per uke.</div>';
+            }
+
+            // Check exercise variety
+            const uniqueExercises = Object.keys(analysis.exerciseFrequency).length;
+            feedback += '<h3>🎯 Øvelsesvariasjoner</h3>';
+            feedback += '<div class="stat">Du har utført <strong>' + uniqueExercises + ' forskjellige øvelser</strong> i perioden.</div>';
+            
+            if (uniqueExercises < 10) {
+                feedback += '<div class="stat" style="border-left: 3px solid #FFC107;">⚠️ <strong>Begrenset variasjon.</strong> Vurder å legge til flere øvelser for å treffe muskelgrupper fra forskjellige vinkler.</div>';
+            } else if (uniqueExercises > 30) {
+                feedback += '<div class="stat" style="border-left: 3px solid #FFC107;">⚠️ <strong>Mye variasjon.</strong> Du har mange forskjellige øvelser. Vurder å fokusere mer på grunnøvelser for bedre progresjon.</div>';
+            } else {
+                feedback += '<div class="stat" style="border-left: 3px solid #4CAF50;">✅ <strong>God variasjon.</strong> Du har en balansert miks av øvelser.</div>';
+            }
+
+            // Check for compound movements
+            const compoundMovements = ['squat', 'deadlift', 'bench', 'press', 'row', 'pull', 'knebøy', 'markløft', 'benkpress'];
+            const hasCompounds = sortedExercises.some(([exercise]) => 
+                compoundMovements.some(compound => exercise.toLowerCase().includes(compound))
+            );
+            
+            feedback += '<h3>🏋️ Grunnøvelser</h3>';
+            if (hasCompounds) {
+                feedback += '<div class="stat" style="border-left: 3px solid #4CAF50;">✅ <strong>Bra!</strong> Du inkluderer grunnøvelser i programmet ditt. Dette er viktig for helkropps styrke og muskelbygging.</div>';
+            } else {
+                feedback += '<div class="stat" style="border-left: 3px solid #f44336;">⚠️ <strong>Mangler grunnøvelser.</strong> Vurder å inkludere øvelser som knebøy, markløft, benkpress og pull-ups for bedre resultater.</div>';
+            }
+
+            // Volume analysis
+            feedback += '<h3>📊 Volum og intensitet</h3>';
+            const avgSetsPerWorkout = analysis.totalSets / analysis.totalWorkouts;
+            feedback += '<div class="stat">Du gjennomfører i gjennomsnitt <strong>' + avgSetsPerWorkout.toFixed(1) + ' sett per økt</strong>.</div>';
+            
+            if (avgSetsPerWorkout < 12) {
+                feedback += '<div class="stat" style="border-left: 3px solid #FFC107;">⚠️ <strong>Lavt volum.</strong> For optimal muskelbygging anbefales 12-20 sett per økt.</div>';
+            } else if (avgSetsPerWorkout > 25) {
+                feedback += '<div class="stat" style="border-left: 3px solid #FFC107;">⚠️ <strong>Høyt volum.</strong> Pass på at du får nok restitusjon. Kvalitet over kvantitet!</div>';
+            } else {
+                feedback += '<div class="stat" style="border-left: 3px solid #4CAF50;">✅ <strong>Godt volum.</strong> Dette er et passende antall sett per økt.</div>';
+            }
+
+            feedback += '<h3>✨ Anbefalinger</h3>';
+            feedback += '<div class="exercise-item">1. <strong>Progressiv overbelastning:</strong> Sørg for å øke vekt eller repetisjoner over tid</div>';
+            feedback += '<div class="exercise-item">2. <strong>Konsistens:</strong> Prøv å holde en jevn treningsfrekvens</div>';
+            feedback += '<div class="exercise-item">3. <strong>Restitusjon:</strong> Sørg for nok søvn og ernæring</div>';
+            feedback += '<div class="exercise-item">4. <strong>Variasjon:</strong> Bytt program hver 8-12 uke for å unngå plateauer</div>';
+
+            return feedback;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="no">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BulkBro - Database Migration</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .sql-box {
+            background: #f5f5f5;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin: 20px 0;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            display: block;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            display: block;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .step {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔧 Database Migration</h1>
+        <p class="subtitle">Fix Warmup Timer Persistence Bug</p>
+
+        <div class="warning">
+            <strong>⚠️ Viktig:</strong> Denne migrasjonen legger til en kolonne i databasen for å fikse problemet med
+            forsvinnende oppvarmingstimer.
+        </div>
+
+        <h3>📋 Hva migrasjonen gjør:</h3>
+        <div class="step">Legger til <code>start_time</code> kolonne i <code>sett</code> tabellen</div>
+        <div class="step">Dette gjør at timer-data blir lagret permanent i databasen</div>
+        <div class="step">Eksisterende data påvirkes ikke (trygg operasjon)</div>
+
+        <h3>💻 SQL som kjøres:</h3>
+        <div class="sql-box">
+            ALTER TABLE public.sett ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
+        </div>
+
+        <button id="runMigration" onclick="runMigration()">
+            🚀 Kjør Migrasjon
+        </button>
+
+        <div class="loader" id="loader"></div>
+        <div id="status" class="status"></div>
+
+        <div id="instructions" style="display: none; margin-top: 30px;">
+            <h3>✅ Neste steg:</h3>
+            <div class="step">1. Test ved å starte en ny treningsøkt</div>
+            <div class="step">2. Start oppvarmingstimeren</div>
+            <div class="step">3. Fullfør økten</div>
+            <div class="step">4. Sjekk at timeren er bevart i historikken</div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Supabase
+        const SUPABASE_URL = 'https://wvugeywqodrqlemwheck.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind2dWdleXdxb2RycWxlbXdoZWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NDQzNTcsImV4cCI6MjA4NDIyMDM1N30.za3n-cFADoJA-1fH6fq-9cZDtM4R25EMIhxppnHb6nM';
+
+        const { createClient } = supabase;
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function runMigration() {
+            const button = document.getElementById('runMigration');
+            const loader = document.getElementById('loader');
+            const status = document.getElementById('status');
+            const instructions = document.getElementById('instructions');
+
+            button.disabled = true;
+            loader.style.display = 'block';
+            status.style.display = 'none';
+            status.className = 'status';
+
+            try {
+                // First, check if user is authenticated
+                const { data: { session } } = await supabaseClient.auth.getSession();
+
+                if (!session) {
+                    throw new Error('Du må være logget inn i BulkBro først. Åpne BulkBro-appen og logg inn, deretter prøv igjen.');
+                }
+
+                // Try to run the migration using a stored procedure or direct SQL
+                // Since we can't run DDL directly, we'll try to use the REST API
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify({
+                        query: 'ALTER TABLE public.sett ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;'
+                    })
+                });
+
+                if (!response.ok) {
+                    // If that doesn't work, provide manual instructions
+                    throw new Error('Automatisk kjøring ikke tilgjengelig. Se instruksjoner nedenfor.');
+                }
+
+                status.className = 'status success';
+                status.innerHTML = `
+                    <strong>✅ Suksess!</strong><br>
+                    Migrasjonen ble kjørt. Kolonnen <code>start_time</code> er nå lagt til i databasen.
+                `;
+                instructions.style.display = 'block';
+
+            } catch (error) {
+                console.error('Migration error:', error);
+
+                status.className = 'status error';
+                status.innerHTML = `
+                    <strong>❌ Automatisk kjøring feilet</strong><br><br>
+                    <strong>Manuell løsning:</strong><br>
+                    1. Åpne <a href="https://app.supabase.com/project/wvugeywqodrqlemwheck/sql" target="_blank">Supabase SQL Editor</a><br>
+                    2. Klikk "New query"<br>
+                    3. Kopier SQL-en ovenfor og lim inn<br>
+                    4. Klikk "Run" eller trykk Ctrl+Enter<br><br>
+                    <em>Feilmelding: ${error.message}</em>
+                `;
+
+                // Auto-open SQL editor
+                window.open('https://app.supabase.com/project/wvugeywqodrqlemwheck/sql', '_blank');
+            } finally {
+                loader.style.display = 'none';
+                button.disabled = false;
+            }
+        }
+    </script>
+</body>
+
+</html>

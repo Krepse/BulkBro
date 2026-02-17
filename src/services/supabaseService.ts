@@ -71,7 +71,8 @@ export const supabaseService = {
                             kg: s.kg,
                             reps: s.reps,
                             completed: s.completed,
-                            completedAt: s.completed_at
+                            completedAt: s.completed_at,
+                            startTime: s.start_time // LOAD TIMER START TIME
                         })).sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
                     }))
             };
@@ -158,7 +159,8 @@ export const supabaseService = {
                 kg: s.kg,
                 reps: s.reps,
                 completed: s.completed,
-                completed_at: s.completedAt
+                completed_at: s.completedAt,
+                start_time: s.startTime // PERSIST TIMER START TIME
             }));
 
             const { error: sError } = await supabase
@@ -285,5 +287,66 @@ export const supabaseService = {
 
     async deleteExercise(exerciseId: string, userId: string) {
         await supabase.from('custom_exercises').delete().eq('user_id', userId).eq('data->>id', exerciseId);
+    },
+
+    // --- Default Programs ---
+    /**
+     * Fetch all default programs (available to all users)
+     */
+    async fetchDefaultPrograms(): Promise<Program[]> {
+        const { data, error } = await supabase
+            .from('programs')
+            .select('*')
+            .eq('is_default', true);
+
+        if (error) {
+            console.error('Error fetching default programs:', error);
+            return [];
+        }
+
+        return data?.map((row: any) => row.data) || [];
+    },
+
+    /**
+     * Copy a default program to user's library
+     * Creates a new program with a new ID and marks it as copied from template
+     */
+    async copyDefaultProgramToUser(defaultProgram: Program, userId: string): Promise<Program> {
+        // Create a new program with a new ID
+        const newProgram: Program = {
+            ...defaultProgram,
+            id: Date.now(), // Generate new ID
+            isDefault: false, // Mark as user's copy
+            templateId: defaultProgram.id // Track which template it came from
+        };
+
+        // Save to database
+        await this.saveProgram(newProgram, userId);
+
+        return newProgram;
+    },
+
+    /**
+     * Seed default programs into the database
+     * This should be run once to populate the default programs
+     * Only callable by admin users
+     */
+    async seedDefaultPrograms(programs: Program[], adminUserId: string) {
+        const programsToInsert = programs.map(p => ({
+            id: p.id,
+            user_id: adminUserId, // Admin user owns the default programs
+            data: p,
+            is_default: true,
+            updated_at: new Date().toISOString()
+        }));
+
+        const { error } = await supabase.from('programs').upsert(programsToInsert);
+
+        if (error) {
+            console.error('Error seeding default programs:', error);
+            throw error;
+        }
+
+        console.log(`✅ Seeded ${programs.length} default programs`);
     }
 };

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="no">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eksporter Programmer - BulkBro</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+            font-weight: 800;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .program {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+
+        .program h2 {
+            margin: 0 0 15px 0;
+            color: #667eea;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .exercise {
+            background: white;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .exercise-name {
+            font-weight: 600;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .exercise-type {
+            color: #999;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sets {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .set {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #667eea;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 800;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+
+        .json-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            margin-top: 30px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .copy-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: all 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .copy-btn:active {
+            transform: translateY(0);
+        }
+
+        .success {
+            color: #10b981;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #856404;
+        }
+
+        .error {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #721c24;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>📋 Eksporter Treningsprogrammer</h1>
+        <p class="subtitle">Denne siden leser programmene dine fra localStorage og viser dem i et lesbart format</p>
+
+        <div id="output"></div>
+
+        <div id="json-container" style="display: none;">
+            <h3>JSON Data (for AI-analyse)</h3>
+            <button class="copy-btn" onclick="copyJSON()">📋 Kopier JSON</button>
+            <span id="copy-status"></span>
+            <pre class="json-output" id="json-output"></pre>
+        </div>
+    </div>
+
+    <script>
+        function displayPrograms() {
+            const output = document.getElementById('output');
+            const jsonContainer = document.getElementById('json-container');
+            const jsonOutput = document.getElementById('json-output');
+
+            try {
+                const programsData = localStorage.getItem('programs');
+
+                if (!programsData) {
+                    output.innerHTML = '<div class="warning">⚠️ Ingen programmer funnet i localStorage. Sørg for at du har opprettet programmer i BulkBro-appen først.</div>';
+                    return;
+                }
+
+                const programs = JSON.parse(programsData);
+
+                if (!programs || programs.length === 0) {
+                    output.innerHTML = '<div class="warning">⚠️ Ingen programmer funnet. Gå til BulkBro-appen og opprett dine treningsprogrammer.</div>';
+                    return;
+                }
+
+                // Display stats
+                let html = '<div class="stats">';
+                html += `<div class="stat"><div class="stat-value">${programs.length}</div><div class="stat-label">Programmer</div></div>`;
+
+                const totalExercises = programs.reduce((sum, p) => sum + (p.ovelser?.length || 0), 0);
+                html += `<div class="stat"><div class="stat-value">${totalExercises}</div><div class="stat-label">Totalt Øvelser</div></div>`;
+                html += '</div>';
+
+                // Display each program
+                programs.forEach((program, index) => {
+                    html += `<div class="program">`;
+                    html += `<h2>${program.navn || 'Uten navn'}</h2>`;
+                    html += `<p style="color: #666; font-size: 14px; margin-bottom: 15px;">Program ID: ${program.id} | ${program.ovelser?.length || 0} øvelser</p>`;
+
+                    if (program.ovelser && program.ovelser.length > 0) {
+                        program.ovelser.forEach((exercise, exIndex) => {
+                            html += `<div class="exercise">`;
+                            html += `<div class="exercise-name">${exIndex + 1}. ${exercise.navn}</div>`;
+                            html += `<div class="exercise-type">${exercise.type || 'Ukjent type'}</div>`;
+
+                            if (exercise.sett && exercise.sett.length > 0) {
+                                html += `<div class="sets">`;
+                                exercise.sett.forEach((set, setIndex) => {
+                                    html += `<div class="set">Set ${setIndex + 1}: ${set.kg}kg × ${set.reps} reps</div>`;
+                                });
+                                html += `</div>`;
+                            }
+
+                            html += `</div>`;
+                        });
+                    } else {
+                        html += `<p style="color: #999; font-style: italic;">Ingen øvelser i dette programmet</p>`;
+                    }
+
+                    html += `</div>`;
+                });
+
+                output.innerHTML = html;
+
+                // Show JSON output
+                jsonContainer.style.display = 'block';
+                jsonOutput.textContent = JSON.stringify(programs, null, 2);
+
+            } catch (error) {
+                output.innerHTML = `<div class="error">❌ Feil ved lesing av data: ${error.message}</div>`;
+                console.error('Error:', error);
+            }
+        }
+
+        function copyJSON() {
+            const jsonText = document.getElementById('json-output').textContent;
+            navigator.clipboard.writeText(jsonText).then(() => {
+                const status = document.getElementById('copy-status');
+                status.innerHTML = '<span class="success">✓ Kopiert!</span>';
+                setTimeout(() => {
+                    status.innerHTML = '';
+                }, 2000);
+            });
+        }
+
+        // Run on load
+        displayPrograms();
+    </script>
+</body>
+
+</html>

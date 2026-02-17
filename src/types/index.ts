@@ -43,7 +43,18 @@ export interface StravaAnalysis {
 export interface Program {
   id: number;
   navn: string;
-  ovelser: string[]; // List of exercise names
+  ovelser: (string | ProgramExercise)[]; // Transition state: allows both formats
+  isDefault?: boolean; // Flag for default/template programs
+  templateId?: number; // Reference to original template if copied
+}
+
+export interface ProgramExercise {
+  navn: string;
+  type: ExerciseType;
+  sets: number;
+  reps: string; // e.g., "6-8", "10-12"
+  rest: string; // e.g., "3 min", "90 sek"
+  notes?: string;
 }
 
 export interface Exercise {
@@ -51,4 +62,13 @@ export interface Exercise {
   name: string;
   type: ExerciseType;
   description?: string; // Keeping for backward compatibility or extra info if needed, but UI will prioritize type
+}
+
+export interface ExerciseTip {
+  exercise: string; // Exercise name
+  formCues: string[]; // Step-by-step technique points
+  commonMistakes: string[]; // What to avoid
+  progressionTips: string[]; // How to progress
+  safetyNotes: string[]; // Important safety information
+  videoUrl?: string; // Optional video demonstration
 }

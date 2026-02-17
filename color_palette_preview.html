@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="no">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BulkBro - Fargepalett Utkast</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .controls {
+            max-width: 1200px;
+            margin: 0 auto 30px;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .palette-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .palette-btn {
+            padding: 20px;
+            border: 3px solid transparent;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .palette-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .palette-btn.active {
+            border-color: #000;
+            box-shadow: 0 0 0 1px #000;
+        }
+
+        /* Current (Indigo) */
+        .palette-btn.current {
+            background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+            color: white;
+        }
+
+        /* Ocean Blue */
+        .palette-btn.ocean {
+            background: linear-gradient(135deg, #0EA5E9 0%, #14B8A6 100%);
+            color: white;
+        }
+
+        /* Dark Mode */
+        .palette-btn.dark {
+            background: linear-gradient(135deg, #A855F7 0%, #3B82F6 100%);
+            color: white;
+        }
+
+        /* Sunset Orange */
+        .palette-btn.sunset {
+            background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+            color: white;
+        }
+
+        /* Forest Green */
+        .palette-btn.forest {
+            background: linear-gradient(135deg, #059669 0%, #84CC16 100%);
+            color: white;
+        }
+
+        /* Crimson Red */
+        .palette-btn.crimson {
+            background: linear-gradient(135deg, #DC2626 0%, #EF4444 100%);
+            color: white;
+        }
+
+        .preview-container {
+            max-width: 400px;
+            margin: 0 auto;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .app-preview {
+            transition: all 0.3s;
+        }
+
+        .app-header {
+            padding: 40px 20px 30px;
+            text-align: center;
+        }
+
+        .app-title {
+            font-size: 32px;
+            font-weight: 900;
+            margin-bottom: 5px;
+        }
+
+        .app-subtitle {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        .app-content {
+            padding: 20px;
+            min-height: 400px;
+        }
+
+        .workout-card {
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 15px;
+        }
+
+        .exercise-name {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .sets-info {
+            font-size: 14px;
+            margin-bottom: 15px;
+            opacity: 0.8;
+        }
+
+        .set-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .set-input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 2px solid;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .check-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: transform 0.2s;
+        }
+
+        .check-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .app-nav {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .nav-icon:hover {
+            transform: translateY(-2px);
+        }
+
+        .color-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 10px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .color-swatch {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            margin-right: 5px;
+            vertical-align: middle;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="controls">
+        <h1>🎨 BulkBro Fargepalett Utkast</h1>
+        <p class="subtitle">Klikk på en palett for å se hvordan den ser ut i appen</p>
+
+        <div class="palette-buttons">
+            <button class="palette-btn current active" onclick="changePalette('current')">
+                ✨ Nåværende<br><small>(Indigo/Lilla)</small>
+            </button>
+            <button class="palette-btn ocean" onclick="changePalette('ocean')">
+                🌊 Ocean Blue<br><small>(Blå/Turkis)</small>
+            </button>
+            <button class="palette-btn dark" onclick="changePalette('dark')">
+                🌙 Dark Mode<br><small>(Lilla/Blå)</small>
+            </button>
+            <button class="palette-btn sunset" onclick="changePalette('sunset')">
+                🌅 Sunset Orange<br><small>(Oransje/Korall)</small>
+            </button>
+            <button class="palette-btn forest" onclick="changePalette('forest')">
+                🌲 Forest Green<br><small>(Grønn/Lime)</small>
+            </button>
+            <button class="palette-btn crimson" onclick="changePalette('crimson')">
+                🔥 Crimson Red<br><small>(Rød/Rosa)</small>
+            </button>
+        </div>
+
+        <div id="colorInfo" class="color-info"></div>
+    </div>
+
+    <div class="preview-container">
+        <div class="app-preview" id="appPreview">
+            <div class="app-header" id="appHeader">
+                <div class="app-title">BulkBro</div>
+                <div class="app-subtitle">Aktiv Økt</div>
+            </div>
+
+            <div class="app-content" id="appContent">
+                <div class="workout-card" id="workoutCard">
+                    <div class="exercise-name">Benkpress</div>
+                    <div class="sets-info">3 sett × 10 reps</div>
+
+                    <div class="set-row">
+                        <input type="text" class="set-input" id="setInput1" value="80 kg × 10" readonly>
+                        <button class="check-btn" id="checkBtn">✓</button>
+                    </div>
+                    <div class="set-row">
+                        <input type="text" class="set-input" id="setInput2" value="80 kg × 10" readonly>
+                        <button class="check-btn">✓</button>
+                    </div>
+                    <div class="set-row">
+                        <input type="text" class="set-input" id="setInput3" value="80 kg × 10" readonly>
+                        <button class="check-btn">✓</button>
+                    </div>
+                </div>
+
+                <div class="workout-card" id="workoutCard2">
+                    <div class="exercise-name">Knebøy</div>
+                    <div class="sets-info">4 sett × 8 reps</div>
+                    <div class="set-row">
+                        <input type="text" class="set-input" value="100 kg × 8" readonly>
+                        <button class="check-btn">✓</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="app-nav" id="appNav">
+                <div class="nav-icon" id="navIcon1">🏠</div>
+                <div class="nav-icon" id="navIcon2">💪</div>
+                <div class="nav-icon" id="navIcon3">📊</div>
+                <div class="nav-icon" id="navIcon4">⚙️</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const palettes = {
+            current: {
+                name: 'Nåværende (Indigo)',
+                primary: '#4F46E5',
+                secondary: '#6366F1',
+                accent: '#22C55E',
+                background: '#F8FAFC',
+                cardBg: '#FFFFFF',
+                text: '#0F172A',
+                textLight: '#64748B',
+                border: '#E2E8F0'
+            },
+            ocean: {
+                name: 'Ocean Blue',
+                primary: '#0EA5E9',
+                secondary: '#06B6D4',
+                accent: '#14B8A6',
+                background: '#F0F9FF',
+                cardBg: '#FFFFFF',
+                text: '#0C4A6E',
+                textLight: '#0369A1',
+                border: '#BAE6FD'
+            },
+            dark: {
+                name: 'Dark Mode',
+                primary: '#A855F7',
+                secondary: '#8B5CF6',
+                accent: '#3B82F6',
+                background: '#18181B',
+                cardBg: '#27272A',
+                text: '#FAFAFA',
+                textLight: '#A1A1AA',
+                border: '#3F3F46'
+            },
+            sunset: {
+                name: 'Sunset Orange',
+                primary: '#F97316',
+                secondary: '#FB923C',
+                accent: '#FBBF24',
+                background: '#FFFBEB',
+                cardBg: '#FFFFFF',
+                text: '#78350F',
+                textLight: '#92400E',
+                border: '#FED7AA'
+            },
+            forest: {
+                name: 'Forest Green',
+                primary: '#059669',
+                secondary: '#10B981',
+                accent: '#84CC16',
+                background: '#F0FDF4',
+                cardBg: '#FFFFFF',
+                text: '#14532D',
+                textLight: '#166534',
+                border: '#BBF7D0'
+            },
+            crimson: {
+                name: 'Crimson Red',
+                primary: '#DC2626',
+                secondary: '#EF4444',
+                accent: '#F59E0B',
+                background: '#FEF2F2',
+                cardBg: '#FFFFFF',
+                text: '#7F1D1D',
+                textLight: '#991B1B',
+                border: '#FECACA'
+            }
+        };
+
+        let currentPalette = 'current';
+
+        function changePalette(paletteName) {
+            currentPalette = paletteName;
+            const palette = palettes[paletteName];
+
+            // Update active button
+            document.querySelectorAll('.palette-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.palette-btn.${paletteName}`).classList.add('active');
+
+            // Apply colors
+            const preview = document.getElementById('appPreview');
+            preview.style.background = palette.background;
+
+            const header = document.getElementById('appHeader');
+            header.style.background = `linear-gradient(135deg, ${palette.primary} 0%, ${palette.secondary} 100%)`;
+            header.style.color = palette.background;
+
+            const content = document.getElementById('appContent');
+            content.style.background = palette.background;
+
+            const cards = document.querySelectorAll('.workout-card');
+            cards.forEach(card => {
+                card.style.background = palette.cardBg;
+                card.style.border = `2px solid ${palette.border}`;
+                card.style.color = palette.text;
+            });
+
+            const exerciseNames = document.querySelectorAll('.exercise-name');
+            exerciseNames.forEach(name => name.style.color = palette.text);
+
+            const setsInfo = document.querySelectorAll('.sets-info');
+            setsInfo.forEach(info => info.style.color = palette.textLight);
+
+            const inputs = document.querySelectorAll('.set-input');
+            inputs.forEach(input => {
+                input.style.background = palette.background;
+                input.style.borderColor = palette.border;
+                input.style.color = palette.text;
+            });
+
+            const checkBtns = document.querySelectorAll('.check-btn');
+            checkBtns.forEach(btn => {
+                btn.style.background = palette.accent;
+                btn.style.color = palette.cardBg;
+            });
+
+            const nav = document.getElementById('appNav');
+            nav.style.background = palette.cardBg;
+            nav.style.borderTopColor = palette.border;
+
+            const navIcons = document.querySelectorAll('.nav-icon');
+            navIcons.forEach((icon, index) => {
+                if (index === 1) {
+                    icon.style.background = palette.primary;
+                    icon.style.color = palette.cardBg;
+                } else {
+                    icon.style.background = palette.background;
+                    icon.style.color = palette.text;
+                }
+            });
+
+            // Update color info
+            const colorInfo = document.getElementById('colorInfo');
+            colorInfo.innerHTML = `
+                <strong>${palette.name}</strong><br>
+                <span class="color-swatch" style="background: ${palette.primary}"></span> Primary: ${palette.primary}<br>
+                <span class="color-swatch" style="background: ${palette.accent}"></span> Accent: ${palette.accent}<br>
+                <span class="color-swatch" style="background: ${palette.background}"></span> Background: ${palette.background}<br>
+                <span class="color-swatch" style="background: ${palette.text}"></span> Text: ${palette.text}
+            `;
+        }
+
+        // Initialize with current palette
+        changePalette('current');
+    </script>
+</body>
+
+</html>

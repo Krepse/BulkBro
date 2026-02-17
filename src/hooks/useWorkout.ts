@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { Okt, Program, Exercise, Ovelse, ExerciseType } from '../types';
 import { useAuth } from './useAuth';
 import { supabaseService } from '../services/supabaseService';
+import { DEFAULT_PROGRAMS } from '../data/defaultPrograms';
 
 export function useWorkout() {
     const { user } = useAuth();
@@ -96,50 +97,84 @@ export function useWorkout() {
         let isMounted = true;
         isSyncingRef.current = true;
 
-        const sync = async () => {
-            // 1. Sync Workouts (Cloud-First + Migration)
-            try {
-                // A. Upload Local-Only Workouts (Migration)
-                // We identify local-only workouts by checking if they have numeric IDs (legacy/local) 
-                // or if they are missing from a quick check (but numeric ID is the safest indicator of "never synced")
-                const localOnlyWorkouts = workoutHistory.filter(w => typeof w.id === 'number');
+        const deduplicatePrograms = (allPrograms: Program[]): Program[] => {
+            // Priority:
+            // 1. Programs that are NOT defaults (user copies/modifications)
+            // 2. Programs with more exercises (more data)
+            // 3. Most recent ID (if everything else is equal)
+            const sorted = [...allPrograms].sort((a, b) => {
+                if (a.isDefault !== b.isDefault) return a.isDefault ? 1 : -1;
+                if ((a.ovelser?.length || 0) !== (b.ovelser?.length || 0)) {
+                    return (b.ovelser?.length || 0) - (a.ovelser?.length || 0);
+                }
+                return b.id - a.id;
+            });
 
+            const seen = new Set<string>();
+            const unique: Program[] = [];
+
+            sorted.forEach(p => {
+                const key = `${p.navn.trim().toLowerCase()}`;
+
+                // CRITICAL: If this program is marked as default, AND its name matches a static default,
+                // we skip it from the USER'S list entirely. The UI will show the static one in the "Recommended" section.
+                if (p.isDefault && DEFAULT_PROGRAMS.find(d => d.navn.trim().toLowerCase() === key)) {
+                    return;
+                }
+
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    unique.push(p);
+                }
+            });
+            return unique;
+        };
+
+        const sync = async () => {
+            // ... (Workout sync kept as is) ...
+            try {
+                const localOnlyWorkouts = workoutHistory.filter(w => typeof w.id === 'number');
                 if (localOnlyWorkouts.length > 0) {
-                    console.log(`Syncing ${localOnlyWorkouts.length} local workouts to cloud...`);
                     for (const workout of localOnlyWorkouts) {
                         if (!isMounted) break;
                         await supabaseService.saveWorkout(workout, user.id);
                     }
-                    console.log("Migration complete.");
                 }
-
-                // B. Fetch Truth from Verified Cloud
                 if (!isMounted) return;
                 const remoteWorkouts = await supabaseService.fetchWorkouts(user.id);
-                console.log('📥 Fetched workouts from Supabase:', remoteWorkouts.length, remoteWorkouts);
-                console.log('🔍 Checking isMounted before setting state:', isMounted);
-                // Always update local state to match Cloud (Cloud is Master)
-                // This replaces the numeric-ID workouts with their new UUID versions
-                if (isMounted) {
-                    console.log('✅ Setting workoutHistory state with', remoteWorkouts.length, 'workouts');
-                    setWorkoutHistory(remoteWorkouts);
-                } else {
-                    console.error('❌ CANNOT SET STATE - component unmounted (isMounted is false)');
-                }
-
+                if (isMounted) setWorkoutHistory(remoteWorkouts);
             } catch (err) {
                 console.error("Sync error:", err);
             }
 
-            // 2. Programs (Keep Sync Logic)
+            // 2. Programs - Deduplicate and Sync
             if (!isMounted) return;
             const pSync = await supabaseService.syncPrograms(programs, user.id);
-            if (isMounted) setPrograms(pSync.programs);
+            if (isMounted) {
+                const cleanPrograms = deduplicatePrograms(pSync.programs);
+                setPrograms(cleanPrograms);
+            }
 
-            // 3. Exercises (Keep Sync Logic)
+            // 3. Exercises
             if (!isMounted) return;
             const eSync = await supabaseService.syncExercises(customExercises, user.id);
             if (isMounted) setCustomExercises(eSync.exercises);
+
+            // 4. Seeding Check
+            try {
+                if (!isMounted) return;
+                const cloudDefaults = await supabaseService.fetchDefaultPrograms();
+                if (cloudDefaults.length === 0) {
+                    await supabaseService.seedDefaultPrograms(DEFAULT_PROGRAMS, user.id);
+                    const updatedPSync = await supabaseService.syncPrograms(programs, user.id);
+                    if (isMounted) {
+                        const cleanPrograms = deduplicatePrograms(updatedPSync.programs);
+                        setPrograms(cleanPrograms);
+                    }
+                }
+            } catch (seedErr) {
+                console.error("Failed to auto-seed default programs:", seedErr);
+            }
         };
 
         sync().finally(() => {
@@ -199,10 +234,16 @@ export function useWorkout() {
         };
 
         if (program) {
-            const exercises: Ovelse[] = program.ovelser.map(navn => {
-                // Look up exercise to find its type
-                const knownEx = customExercises.find(c => c.name === navn);
-                const type: ExerciseType = knownEx ? knownEx.type : 'Stang'; // Default to Stang if unknown
+            const exercises: Ovelse[] = program.ovelser.map(ex => {
+                const navn = typeof ex === 'string' ? ex : ex.navn;
+                // Priority: 1. Type from program (if object) 2. Type from custom library 3. Default to Stang
+                let type: ExerciseType = 'Stang';
+                if (typeof ex !== 'string') {
+                    type = ex.type;
+                } else {
+                    const knownEx = customExercises.find(c => c.name === ex);
+                    if (knownEx) type = knownEx.type;
+                }
 
                 return {
                     id: crypto.randomUUID(),
@@ -407,12 +448,12 @@ export function useWorkout() {
 
     const finishWorkout = async () => {
         if (activeWorkout) {
-            // Filter: Keep sets that are COMPLETED OR have DATA (kg > 0 or reps > 0 or timing data)
-            // This prevents data loss if user forgets to check the box
+            // Filter: Keep ONLY sets that are marked as COMPLETED (checked off)
+            // Uncompleted sets will NOT be saved to history
             const filteredExercises = activeWorkout.ovelser.map(ex => ({
                 ...ex,
-                sett: ex.sett.filter(s => s.completed || s.kg > 0 || s.reps > 0 || (s.startTime && s.completedAt))
-            })).filter(ex => ex.sett.length > 0); // Remove exercises that end up with 0 sets
+                sett: ex.sett.filter(s => s.completed)
+            })).filter(ex => ex.sett.length > 0); // Remove exercises that end up with 0 completed sets
 
             const finishedWorkout: Okt = {
                 ...activeWorkout,

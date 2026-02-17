@@ -138,3 +138,4 @@ CREATE POLICY "Users can update their own custom exercises" ON custom_exercises 
 DROP POLICY IF EXISTS "Users can delete their own custom exercises" ON custom_exercises;
 CREATE POLICY "Users can delete their own custom exercises" ON custom_exercises FOR DELETE USING (auth.uid() = user_id);-- 5. MIGRATIONS (Safe to run)
 ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS strava_analysis JSONB;
+ALTER TABLE public.sett ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;

@@ -5,6 +5,8 @@ import { Button } from '../components/ui/Button';
 import { SortableList } from '../components/ui/SortableList';
 import { RestTimerOverlay } from '../components/workout/RestTimerOverlay';
 import { Stopwatch } from '../components/ui/Stopwatch';
+import { ExerciseCoach } from '../components/ExerciseCoach';
+import { hasTips } from '../data/exerciseTips';
 
 interface ActiveWorkoutViewProps {
     workout: Okt;
@@ -40,6 +42,7 @@ export function ActiveWorkoutView({
 }) {
     const [isReordering, setIsReordering] = useState(false);
     const [showFinishConfirm, setShowFinishConfirm] = useState(false);
+    const [coachExercise, setCoachExercise] = useState<string | null>(null);
 
     return (
         <div className="min-h-screen bg-slate-50 pb-40">
@@ -113,12 +116,25 @@ export function ActiveWorkoutView({
                                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{ex.type}</p>
                                         )}
                                     </div>
-                                    <button
-                                        onClick={() => onRemoveExercise(ex.id)}
-                                        className="text-slate-300 hover:text-red-400 transition-colors p-2 -mr-2 -mt-2"
-                                    >
-                                        <Icons.Trash2 className="w-5 h-5" />
-                                    </button>
+                                    <div className="flex gap-2">
+                                        {hasTips(ex.navn) && (
+                                            <button
+                                                onClick={() => setCoachExercise(ex.navn)}
+                                                className="text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors p-2 rounded-full"
+                                                title="Vis teknikktips"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => onRemoveExercise(ex.id)}
+                                            className="text-slate-300 hover:text-red-400 transition-colors p-2 -mr-2 -mt-2"
+                                        >
+                                            <Icons.Trash2 className="w-5 h-5" />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-4">
@@ -306,6 +322,15 @@ export function ActiveWorkoutView({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* EXERCISE COACH MODAL */}
+            {coachExercise && (
+                <ExerciseCoach
+                    exerciseName={coachExercise}
+                    isOpen={true}
+                    onClose={() => setCoachExercise(null)}
+                />
             )}
         </div >
     );

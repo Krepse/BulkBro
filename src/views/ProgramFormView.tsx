@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Program } from '../types';
+import type { Program, ProgramExercise } from '../types';
 import { Button } from '../components/ui/Button';
 import { Icons } from '../components/ui/Icons';
 import { SortableList } from '../components/ui/SortableList';
@@ -9,10 +9,10 @@ interface ProgramFormViewProps {
     onSave: (program: Program) => void;
     editingProgram: Program | null;
     onAddExercise: () => void;
-    newProgramExercises: string[];
+    newProgramExercises: (string | ProgramExercise)[]; // Hardened to allow both types
     draftName: string;
     setDraftName: (name: string) => void;
-    setDraftExercises: (exercises: string[]) => void;
+    setDraftExercises: (exercises: (string | ProgramExercise)[]) => void;
 }
 
 // Validation constants
@@ -33,11 +33,20 @@ export function ProgramFormView({
     const [error, setError] = useState<string | null>(null);
     const [touched, setTouched] = useState(false);
 
+    // Helper to extract name safely
+    const getExName = (ex: string | ProgramExercise): string => {
+        if (!ex) return 'Ukjent';
+        return typeof ex === 'string' ? ex : ex.navn;
+    };
+
     // Initialize draft if editing
     useEffect(() => {
         if (editingProgram && draftName === '' && newProgramExercises.length === 0) {
             setDraftName(editingProgram.navn);
-            setDraftExercises(editingProgram.ovelser);
+            // Ensure we only store strings in the draft array for the picklist/sorting logic
+            // although we hardened the props to allow both for safety.
+            const exerciseNames = editingProgram.ovelser.map(ex => getExName(ex));
+            setDraftExercises(exerciseNames);
         }
         setError(null);
         setTouched(false);
@@ -76,10 +85,25 @@ export function ProgramFormView({
             return;
         }
 
+        // Convert whatever is in newProgramExercises (strings or objects) into proper ProgramExercise objects
+        const programExercises: ProgramExercise[] = newProgramExercises.map(ex => {
+            if (typeof ex !== 'string') return ex;
+
+            // If it's a string, create a default ProgramExercise object
+            return {
+                navn: ex,
+                type: 'Stang' as any, // Default type
+                sets: 3,
+                reps: '10',
+                rest: '90 sek',
+                notes: ''
+            };
+        });
+
         const program: Program = {
             id: editingProgram ? editingProgram.id : Date.now(),
             navn: trimmedName,
-            ovelser: newProgramExercises
+            ovelser: programExercises
         };
         onSave(program);
     };
@@ -140,29 +164,42 @@ export function ProgramFormView({
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-4">Øvelser ({newProgramExercises.length})</label>
                     {isReordering ? (
                         <SortableList
-                            // Better approach for SortableList with primitive strings:
-                            // We need unique IDs. Let's assume unique names.
-                            items={newProgramExercises}
-                            renderItem={(id) => (
-                                <div className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
-                                    <span className="font-bold text-slate-700 uppercase tracking-tight">{id}</span>
-                                </div>
-                            )}
-                            onReorder={(newOrder) => setDraftExercises(newOrder as string[])}
+                            items={newProgramExercises.map((ex, i) => `${getExName(ex)}-${i}`)} // Use stable string IDs for sortable list
+                            onReorder={(newOrderIds) => {
+                                // Map IDs back to original items
+                                const idToItem = new Map(newProgramExercises.map((ex, i) => [`${getExName(ex)}-${i}`, ex]));
+                                const reordered = newOrderIds.map(id => idToItem.get(String(id))!);
+                                setDraftExercises(reordered);
+                            }}
+                            renderItem={(id) => {
+                                // Extract name from the synthetic ID (name-index)
+                                const name = id.toString().split('-').slice(0, -1).join('-');
+                                return (
+                                    <div className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
+                                        <span className="font-bold text-slate-700 uppercase tracking-tight">{name}</span>
+                                    </div>
+                                );
+                            }}
                         />
                     ) : (
-                        newProgramExercises.map((exName, idx) => (
-                            <div key={idx} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
-                                <span className="font-bold text-slate-700 uppercase tracking-tight">{exName}</span>
-                                <button
-                                    onClick={() => setDraftExercises(newProgramExercises.filter((_, i) => i !== idx))}
-                                    className="text-slate-300 hover:text-red-400 p-2"
-                                    aria-label={`Fjern ${exName}`}
-                                >
-                                    <Icons.Trash2 className="w-5 h-5" />
-                                </button>
-                            </div>
-                        )))}
+                        <div className="space-y-3">
+                            {newProgramExercises.map((ex, idx) => {
+                                const exName = getExName(ex);
+                                return (
+                                    <div key={idx} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 flex justify-between items-center shadow-sm">
+                                        <span className="font-bold text-slate-700 uppercase tracking-tight">{exName}</span>
+                                        <button
+                                            onClick={() => setDraftExercises(newProgramExercises.filter((_, i) => i !== idx))}
+                                            className="text-slate-300 hover:text-red-400 p-2"
+                                            aria-label={`Fjern ${exName}`}
+                                        >
+                                            <Icons.Trash2 className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
 
                     <div className="relative group mt-4">
                         <button
@@ -185,6 +222,6 @@ export function ProgramFormView({
                     Lagre Program
                 </Button>
             </main>
-        </div >
+        </div>
     );
 }

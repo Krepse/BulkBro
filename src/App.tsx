@@ -264,10 +264,24 @@ export default function App() {
             onEditProgram={(p) => {
               setEditingProgram(p);
               setDraftProgramName(p.navn);
-              setDraftProgramExercises(p.ovelser);
+              // Convert ovelser to string[] format (handle both old and new formats)
+              const exerciseNames = p.ovelser.map(ex =>
+                typeof ex === 'string' ? ex : ex.navn
+              );
+              setDraftProgramExercises(exerciseNames);
               setView('edit_program_form');
             }}
             onDeleteProgram={deleteProgram}
+            onCopyDefaultProgram={(defaultProgram) => {
+              // Create a copy of the default program for the user
+              const userCopy: Program = {
+                ...defaultProgram,
+                id: Date.now(),
+                isDefault: false,
+                templateId: defaultProgram.id
+              };
+              saveProgram(userCopy);
+            }}
           />
         );
 
@@ -285,10 +299,24 @@ export default function App() {
             onEditProgram={(p) => {
               setEditingProgram(p);
               setDraftProgramName(p.navn);
-              setDraftProgramExercises(p.ovelser);
+              // Convert ovelser to string[] format (handle both old and new formats)
+              const exerciseNames = p.ovelser.map(ex =>
+                typeof ex === 'string' ? ex : ex.navn
+              );
+              setDraftProgramExercises(exerciseNames);
               setView('edit_program_form');
             }}
             onDeleteProgram={deleteProgram}
+            onCopyDefaultProgram={(defaultProgram) => {
+              // Create a copy of the default program for the user
+              const userCopy: Program = {
+                ...defaultProgram,
+                id: Date.now(),
+                isDefault: false,
+                templateId: defaultProgram.id
+              };
+              saveProgram(userCopy);
+            }}
           />
         );
 
