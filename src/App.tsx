@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
 import { exchangeToken } from './services/strava';
-import type { Exercise, Program } from './types';
+import type { Exercise, Program, ProgramExercise } from './types';
 
 // VIEW IMPORTS
 import { HomeView } from './views/HomeView';
@@ -59,7 +59,7 @@ export default function App() {
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [editingProgram, setEditingProgram] = useState<Program | null>(null);
   const [draftProgramName, setDraftProgramName] = useState('');
-  const [draftProgramExercises, setDraftProgramExercises] = useState<string[]>([]);
+  const [draftProgramExercises, setDraftProgramExercises] = useState<(string | ProgramExercise)[]>([]);
 
   // --- STRAVA CALLBACK HANDLER ---
   const processingCode = useRef<string | null>(null);
