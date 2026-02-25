@@ -48,7 +48,11 @@ export const supabaseService = {
                 stravaAnalysis: w.strava_analysis, // Map JSONB to object
                 ovelser: w.exercises
                     .sort((a: any, b: any) => {
-                        // Priority 1: Explicit Order from Metadata
+                        // Priority 1: order_index (most reliable)
+                        if (a.order_index != null && b.order_index != null) {
+                            return a.order_index - b.order_index;
+                        }
+                        // Priority 2: Explicit Order from Metadata
                         const order: string[] = w.strava_analysis?.exerciseOrder || [];
                         if (order.length > 0) {
                             const idxA = order.indexOf(String(a.id));
@@ -59,21 +63,30 @@ export const supabaseService = {
                             if (idxA !== -1) return -1;
                             if (idxB !== -1) return 1;
                         }
-                        // Priority 2: Created At (Insertion Order)
+                        // Priority 3: Created At (Insertion Order)
                         return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
                     })
                     .map((e: any) => ({
                         id: e.id,
                         navn: e.name,
                         type: e.type,
-                        sett: (e.sets || []).map((s: any) => ({
-                            id: s.id,
-                            kg: s.kg,
-                            reps: s.reps,
-                            completed: s.completed,
-                            completedAt: s.completed_at,
-                            startTime: s.start_time // LOAD TIMER START TIME
-                        })).sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+                        sett: (e.sets || [])
+                            .sort((a: any, b: any) => {
+                                // Priority 1: order_index
+                                if (a.order_index != null && b.order_index != null) {
+                                    return a.order_index - b.order_index;
+                                }
+                                // Fallback: created_at
+                                return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                            })
+                            .map((s: any) => ({
+                                id: s.id,
+                                kg: s.kg,
+                                reps: s.reps,
+                                completed: s.completed,
+                                completedAt: s.completed_at,
+                                startTime: s.start_time // LOAD TIMER START TIME
+                            }))
                     }))
             };
             return workout;
@@ -85,12 +98,6 @@ export const supabaseService = {
 
     async saveWorkout(workout: Okt, userId: string) {
         // 1. Save Workout
-        // Check if ID is UUID. If number (from local dummy), omit it to let DB generate UUID.
-        // Or if we want to "sync upsert", we need a UUID map.
-        // User requested "Save to Supabase" -> Assuming "Finish Workout".
-        // Let's Insert a new Workout for every Finish, or Upsert if we track UUID.
-        // The current app generates `Date.now()` IDs. We should treat these as NEW rows in DB.
-
         let workoutId = typeof workout.id === 'string' && (workout.id as string).length > 20 ? workout.id : undefined;
 
         // Capture Order
@@ -102,7 +109,7 @@ export const supabaseService = {
             exerciseOrder
         };
 
-        // Insert Workout
+        // Insert/Upsert Workout
         const { data: wData, error: wError } = await supabase
             .from('workouts')
             .upsert({
@@ -111,7 +118,7 @@ export const supabaseService = {
                 name: workout.navn,
                 start_time: workout.startTime,
                 end_time: workout.endTime,
-                strava_analysis: stravaAnalysis // Save updated JSONB with order
+                strava_analysis: stravaAnalysis
             })
             .select()
             .single();
@@ -123,52 +130,98 @@ export const supabaseService = {
 
         const newWorkoutId = wData.id;
 
-        // 2. Clear existing exercises (Prevent Duplicates on Update)
-        // Since we are saving the entire state of the workout, we replace the exercises.
-        if (workoutId) {
-            await supabase
-                .from('exercises')
-                .delete()
-                .eq('workout_id', newWorkoutId);
-        }
+        // 2. Insert new exercises and sets FIRST (before deleting old ones)
+        // This ensures we don't lose data if the insert fails
+        const newExerciseIds: string[] = [];
+        let allInsertedOk = true;
 
-        // 3. Save Exercises
-        for (const ex of workout.ovelser) {
-            // Insert Exercise
+        for (let exIndex = 0; exIndex < workout.ovelser.length; exIndex++) {
+            const ex = workout.ovelser[exIndex];
+
+            // Don't pass the old ID — let DB generate a fresh UUID to avoid conflicts
             const { data: eData, error: eError } = await supabase
                 .from('exercises')
                 .insert({
-                    id: ex.id, // PERSIST ID
                     workout_id: newWorkoutId,
                     user_id: userId,
                     name: ex.navn,
-                    type: ex.type
+                    type: ex.type,
+                    order_index: exIndex
                 })
                 .select()
                 .single();
 
-            if (eError || !eData) continue;
+            if (eError || !eData) {
+                console.error("Error saving exercise:", eError);
+                allInsertedOk = false;
+                continue;
+            }
 
             const newExId = eData.id;
+            newExerciseIds.push(newExId);
 
-            // 3. Save Sets
-            const setsPayload = ex.sett.map(s => ({
-                id: s.id, // PERSIST ID
-                exercise_id: newExId,
-                user_id: userId,
-                kg: s.kg,
-                reps: s.reps,
-                completed: s.completed,
-                completed_at: s.completedAt,
-                start_time: s.startTime // PERSIST TIMER START TIME
-            }));
+            // 3. Save Sets with order_index
+            if (ex.sett.length === 0) continue;
+
+            const setsPayload = ex.sett.map((s, setIndex) => {
+                return {
+                    // Let DB generate fresh UUID — old sets are cascade-deleted with old exercises
+                    exercise_id: newExId,
+                    user_id: userId,
+                    kg: s.kg,
+                    reps: s.reps,
+                    completed: s.completed,
+                    completed_at: s.completedAt,
+                    start_time: s.startTime,
+                    order_index: setIndex
+                };
+            });
 
             const { error: sError } = await supabase
                 .from('sets')
                 .insert(setsPayload);
 
-            if (sError) console.error("Error saving sets:", sError);
+            if (sError) {
+                console.error("Error saving sets:", sError);
+                allInsertedOk = false;
+            }
         }
+
+        // 4. SAFE DELETE: Only delete OLD exercises after new ones are confirmed
+        // This prevents data loss if the insert step fails
+        if (workoutId && newExerciseIds.length > 0) {
+            if (allInsertedOk) {
+                // All inserts succeeded — safe to clean up old exercises
+                const { error: delError } = await supabase
+                    .from('exercises')
+                    .delete()
+                    .eq('workout_id', newWorkoutId)
+                    .not('id', 'in', `(${newExerciseIds.join(',')})`);
+
+                if (delError) console.error("Error cleaning old exercises:", delError);
+            } else {
+                // Partial failure — roll back by removing the NEW exercises to keep old data intact
+                console.warn("Partial insert failure — rolling back new exercises to preserve old data");
+                if (newExerciseIds.length > 0) {
+                    await supabase
+                        .from('exercises')
+                        .delete()
+                        .in('id', newExerciseIds);
+                }
+            }
+        }
+
+        // 5. Update exerciseOrder with the new IDs
+        const newExerciseOrder = newExerciseIds.map(id => String(id));
+        await supabase
+            .from('workouts')
+            .update({
+                strava_analysis: {
+                    ...(workout.stravaAnalysis || {}),
+                    exerciseOrder: newExerciseOrder
+                }
+            })
+            .eq('id', newWorkoutId);
 
         console.log("Workout saved to Supabase Relational DB:", newWorkoutId);
         return newWorkoutId;

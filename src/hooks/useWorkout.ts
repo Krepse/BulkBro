@@ -229,7 +229,7 @@ export function useWorkout() {
             navn: "Oppvarming",
             type: "Oppvarming",
             sett: [
-                { id: 1, kg: 0, reps: 0, completed: false }
+                { id: crypto.randomUUID(), kg: 0, reps: 0, completed: false }
             ]
         };
 
@@ -280,7 +280,7 @@ export function useWorkout() {
         setActiveWorkout(prev => {
             if (!prev) return null;
             const nyOvelse: Ovelse = {
-                id: Date.now(),
+                id: crypto.randomUUID(),
                 navn: navn,
                 type: type,
                 sett: getLastUsedSets(navn) // Use history or default
@@ -292,7 +292,7 @@ export function useWorkout() {
         });
     };
 
-    const removeExercise = (exId: number | string) => {
+    const removeExercise = (exId: string) => {
         setActiveWorkout(prev => {
             if (!prev) return null;
             return {
@@ -328,7 +328,11 @@ export function useWorkout() {
 
             const set = updatedOvelser[exIdx].sett[setIdx];
 
-            if (field === 'completedAt') {
+            if (field === 'stopTimer') {
+                // ATOMIC timer stop: set completedAt, reps (duration), and completed in ONE update
+                const { completedAt, durationSeconds } = value as { completedAt: string, durationSeconds: number };
+                updatedOvelser[exIdx].sett[setIdx] = { ...set, completedAt, reps: durationSeconds, completed: true };
+            } else if (field === 'completedAt') {
                 // If setting completedAt, we also mark completed = true
                 updatedOvelser[exIdx].sett[setIdx] = { ...set, completedAt: value, completed: true };
             } else if (field === 'startTime') {
@@ -433,7 +437,7 @@ export function useWorkout() {
 
             const forrigeSett = updatedOvelser[exIdx].sett[updatedOvelser[exIdx].sett.length - 1];
             updatedOvelser[exIdx].sett.push({
-                id: Date.now(),
+                id: crypto.randomUUID(),
                 kg: forrigeSett ? forrigeSett.kg : 20,
                 reps: forrigeSett ? forrigeSett.reps : 10,
                 completed: false
@@ -448,9 +452,30 @@ export function useWorkout() {
 
     const finishWorkout = async () => {
         if (activeWorkout) {
+            // Auto-stop any running timers before filtering
+            // This handles the case where user finishes without stopping the warmup stopwatch
+            const now = new Date();
+            const autoStoppedExercises = activeWorkout.ovelser.map(ex => {
+                if (ex.type === 'Oppvarming') {
+                    return {
+                        ...ex,
+                        sett: ex.sett.map(s => {
+                            if (s.startTime && !s.completed) {
+                                // Auto-stop: calculate duration and mark completed
+                                const start = new Date(s.startTime);
+                                const durationSeconds = Math.round((now.getTime() - start.getTime()) / 1000);
+                                return { ...s, completed: true, completedAt: now.toISOString(), reps: durationSeconds };
+                            }
+                            return s;
+                        })
+                    };
+                }
+                return ex;
+            });
+
             // Filter: Keep ONLY sets that are marked as COMPLETED (checked off)
             // Uncompleted sets will NOT be saved to history
-            const filteredExercises = activeWorkout.ovelser.map(ex => ({
+            const filteredExercises = autoStoppedExercises.map(ex => ({
                 ...ex,
                 sett: ex.sett.filter(s => s.completed)
             })).filter(ex => ex.sett.length > 0); // Remove exercises that end up with 0 completed sets
@@ -458,7 +483,7 @@ export function useWorkout() {
             const finishedWorkout: Okt = {
                 ...activeWorkout,
                 ovelser: filteredExercises,
-                endTime: new Date().toISOString()
+                endTime: activeWorkout.endTime || new Date().toISOString() // Preserve original endTime when editing
             };
 
             // 1. Optimistic Update (Local ID)

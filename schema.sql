@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.exercises (
 );
 
 -- Sets Table (Relational, linked to Exercise)
-CREATE TABLE IF NOT EXISTS public.sett (
+CREATE TABLE IF NOT EXISTS public.sets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     exercise_id UUID REFERENCES public.exercises(id) ON DELETE CASCADE,
     user_id UUID NOT NULL, -- Added for RLS
@@ -97,17 +97,17 @@ DROP POLICY IF EXISTS "Users can delete their own exercises" ON exercises;
 CREATE POLICY "Users can delete their own exercises" ON exercises FOR DELETE USING (auth.uid() = user_id);
 
 -- Sets
-DROP POLICY IF EXISTS "Users can view their own sets" ON sett;
-CREATE POLICY "Users can view their own sets" ON sett FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can view their own sets" ON sets;
+CREATE POLICY "Users can view their own sets" ON sets FOR SELECT USING (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Users can insert their own sets" ON sett;
-CREATE POLICY "Users can insert their own sets" ON sett FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own sets" ON sets;
+CREATE POLICY "Users can insert their own sets" ON sets FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Users can update their own sets" ON sett;
-CREATE POLICY "Users can update their own sets" ON sett FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own sets" ON sets;
+CREATE POLICY "Users can update their own sets" ON sets FOR UPDATE USING (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Users can delete their own sets" ON sett;
-CREATE POLICY "Users can delete their own sets" ON sett FOR DELETE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own sets" ON sets;
+CREATE POLICY "Users can delete their own sets" ON sets FOR DELETE USING (auth.uid() = user_id);
 
 -- Programs
 DROP POLICY IF EXISTS "Users can view their own programs" ON programs;
@@ -138,4 +138,6 @@ CREATE POLICY "Users can update their own custom exercises" ON custom_exercises 
 DROP POLICY IF EXISTS "Users can delete their own custom exercises" ON custom_exercises;
 CREATE POLICY "Users can delete their own custom exercises" ON custom_exercises FOR DELETE USING (auth.uid() = user_id);-- 5. MIGRATIONS (Safe to run)
 ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS strava_analysis JSONB;
-ALTER TABLE public.sett ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
+ALTER TABLE public.sets ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;
+ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;
+ALTER TABLE public.sets ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;

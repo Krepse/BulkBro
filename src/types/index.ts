@@ -2,7 +2,7 @@
 export type ExerciseType = 'Stang' | 'Manualer' | 'Kabel' | 'Egenvekt' | 'Maskin' | 'Oppvarming';
 
 export interface Sett {
-  id: number | string;
+  id: string;
   kg: number;
   reps: number;
   completed: boolean;
@@ -11,7 +11,7 @@ export interface Sett {
 }
 
 export interface Ovelse {
-  id: number | string;
+  id: string;
   navn: string;
   type: ExerciseType;
   sett: Sett[];

@@ -13,7 +13,7 @@ interface ActiveWorkoutViewProps {
     onUpdateWorkoutName: (name: string) => void;
     onFinish: () => void;
     onNavigate: (view: any) => void;
-    onRemoveExercise: (id: string | number) => void;
+    onRemoveExercise: (id: string) => void;
     onUpdateSet: (exIdx: number, setIdx: number, field: any, value: any, shouldSync?: boolean) => void;
     onToggleSet: (exIdx: number, setIdx: number) => void;
     onAddSet: (exIdx: number) => void;
@@ -187,9 +187,11 @@ export function ActiveWorkoutView({
                                                                 const now = new Date();
                                                                 const start = new Date(set.startTime!);
                                                                 const durationSeconds = Math.round((now.getTime() - start.getTime()) / 1000);
-                                                                onUpdateSet(exIdx, sIdx, 'completedAt', now.toISOString());
-                                                                // Save duration and TRIGGER SYNC
-                                                                onUpdateSet(exIdx, sIdx, 'reps', durationSeconds, true);
+                                                                // ATOMIC: Set completedAt + reps + completed in ONE state update
+                                                                onUpdateSet(exIdx, sIdx, 'stopTimer', {
+                                                                    completedAt: now.toISOString(),
+                                                                    durationSeconds
+                                                                }, true);
                                                             }}
                                                         />
                                                     )}
