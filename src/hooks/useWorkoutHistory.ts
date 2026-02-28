@@ -32,6 +32,7 @@ export function useWorkoutHistory(userId: string | undefined) {
     const syncWorkouts = async (isMounted: () => boolean) => {
         if (!userId) return;
         try {
+            // 1. Push local-only workouts to cloud first
             const localOnlyWorkouts = workoutHistory.filter(w => typeof w.id === 'number');
             if (localOnlyWorkouts.length > 0) {
                 for (const workout of localOnlyWorkouts) {
@@ -40,8 +41,23 @@ export function useWorkoutHistory(userId: string | undefined) {
                 }
             }
             if (!isMounted()) return;
+
+            // 2. Fetch remote workouts
             const remoteWorkouts = await supabaseService.fetchWorkouts(userId);
-            if (isMounted()) setWorkoutHistory(remoteWorkouts);
+            if (!isMounted()) return;
+
+            // 3. Merge: Keep any local workouts that aren't in remote yet
+            // (e.g., just-finished workout that hasn't appeared in remote)
+            const remoteIds = new Set(remoteWorkouts.map(w => String(w.id)));
+            const localNotInRemote = workoutHistory.filter(w => {
+                const id = String(w.id);
+                // Keep local workouts with numeric IDs (not yet synced)
+                // Also keep workouts with endTime that aren't in remote (just finished)
+                return !remoteIds.has(id) && (typeof w.id === 'number' || w.endTime);
+            });
+
+            const merged = [...localNotInRemote, ...remoteWorkouts];
+            if (isMounted()) setWorkoutHistory(merged);
         } catch (err) {
             console.error("Sync error:", err);
         }

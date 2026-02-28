@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { useWorkout } from './hooks/useWorkout';
 import { exchangeToken } from './services/strava';
-import type { Exercise, Program, ProgramExercise } from './types';
+import type { Exercise, Program, ProgramExercise, ExerciseType } from './types';
 
 // VIEW IMPORTS
+import { Icons } from './components/ui/Icons';
 import { HomeView } from './views/HomeView';
 import { ActiveWorkoutView } from './views/ActiveWorkoutView';
 import { HistoryView } from './views/HistoryView';
@@ -106,7 +107,7 @@ export default function App() {
   }
 
   // Calculate statistics for a specific exercise across all history
-  const getExerciseStats = (exerciseName: string) => {
+  const getExerciseStats = (exerciseName: string, exerciseType?: ExerciseType) => {
     const stats: { date: string; maxWeight: number; estimated1RM: number; totalVolume: number }[] = [];
 
     // Sort history by date ascending
@@ -117,7 +118,10 @@ export default function App() {
     });
 
     sortedHistory.forEach(workout => {
-      const ex = workout.ovelser.find(e => e.navn === exerciseName);
+      // Match by both name AND type if type is provided
+      const ex = workout.ovelser.find(e =>
+        e.navn === exerciseName && (!exerciseType || e.type === exerciseType)
+      );
       if (ex && ex.sett) {
         let maxWeight = 0;
         let best1RM = 0;
@@ -160,19 +164,11 @@ export default function App() {
   };
 
   // --- RENDER LOGIC ---
-
-  // 1. Priority: Active Workout overrides everything unless we are in specific sub-views?
-  if (activeWorkout && (view === 'home' || view === 'active' || view === 'new_workout' || view === 'select_program')) {
-    // Also include 'select_program' in the auto-redirect list if we want implicit behavior,
-    // but the setView('active') above is the primary fix.
-    // Let's keep it clean: if activeWorkout exists, we generally want to be in 'active' view
-    // UNLESS the user explicitly navigated away (e.g. to settings, history).
-    // The current logic is a bit brittle. 
-    // Let's rely on setView('active') and include it here just in case.
-  }
+  // Active workout no longer locks the user into the workout view.
+  // Instead, we show a floating banner on all other views.
 
   const renderContent = () => {
-    if (activeWorkout && (view === 'home' || view === 'active' || view === 'new_workout')) {
+    if (activeWorkout && view === 'active') {
       return (
         <ActiveWorkoutView
           workout={activeWorkout}
@@ -408,6 +404,25 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-500/30">
       {renderContent()}
+
+      {/* FLOATING WORKOUT BANNER — shows when active workout exists but user is on another view */}
+      {activeWorkout && view !== 'active' && (
+        <div
+          onClick={() => setView('active')}
+          className="fixed bottom-0 left-0 right-0 z-[90] cursor-pointer"
+        >
+          <div className="mx-4 mb-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl px-6 py-4 shadow-2xl shadow-indigo-900/50 flex items-center justify-between transition-all active:scale-[0.98] border border-indigo-400/30">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
+              <div>
+                <p className="font-black text-sm uppercase tracking-wider">{activeWorkout.navn}</p>
+                <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest">Økt pågår — trykk for å gå tilbake</p>
+              </div>
+            </div>
+            <Icons.ChevronRight className="w-6 h-6 text-indigo-200" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

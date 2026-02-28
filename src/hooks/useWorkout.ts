@@ -100,18 +100,58 @@ export function useWorkout() {
         }
     }, [user?.id]);
 
+    // --- EFFECT: AUTO-CHECKPOINT ON APP BACKGROUND (iPhone fix) ---
+    const activeWorkoutRef = useRef(activeWorkout);
+    activeWorkoutRef.current = activeWorkout;
+
+    const userRef = useRef(user);
+    userRef.current = user;
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                const currentWorkout = activeWorkoutRef.current;
+                const currentUser = userRef.current;
+                if (currentWorkout && currentUser) {
+                    // Persist to localStorage immediately (synchronous)
+                    localStorage.setItem('activeWorkout', JSON.stringify(currentWorkout));
+                    // Also try to push to cloud (best-effort, may be killed by OS)
+                    supabaseService.saveWorkout(currentWorkout, currentUser.id)
+                        .catch(err => console.error('Background checkpoint failed:', err));
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, []);
+
     // --- HELPERS ---
 
-    const getLastUsedSets = (exerciseName: string) => {
-        for (const workout of workoutHistory) {
-            const exercise = workout.ovelser.find(e => e.navn === exerciseName);
+    const getLastUsedSets = (exerciseName: string, exerciseType?: ExerciseType) => {
+        // Sort by date descending to get the most recent workout first
+        const sorted = [...workoutHistory].sort((a, b) => {
+            const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
+            const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
+            return timeB - timeA;
+        });
+
+        for (const workout of sorted) {
+            // Match by both name AND type if type is provided
+            const exercise = workout.ovelser.find(e =>
+                e.navn === exerciseName && (!exerciseType || e.type === exerciseType)
+            );
             if (exercise && exercise.sett && exercise.sett.length > 0) {
-                return exercise.sett.map(s => ({
-                    id: crypto.randomUUID(),
-                    kg: s.kg,
-                    reps: s.reps,
-                    completed: false
-                }));
+                // Only return sets that were actually completed with valid data
+                const validSets = exercise.sett.filter(s => s.completed && (s.kg > 0 || s.reps > 0));
+                if (validSets.length > 0) {
+                    return validSets.map(s => ({
+                        id: crypto.randomUUID(),
+                        kg: s.kg,
+                        reps: s.reps,
+                        completed: false
+                    }));
+                }
             }
         }
         return [{ id: crypto.randomUUID(), kg: 20, reps: 10, completed: false }];
@@ -144,7 +184,7 @@ export function useWorkout() {
                     id: crypto.randomUUID(),
                     navn: navn,
                     type: type,
-                    sett: getLastUsedSets(navn)
+                    sett: getLastUsedSets(navn, type)
                 };
             });
 
@@ -177,7 +217,7 @@ export function useWorkout() {
                 id: crypto.randomUUID(),
                 navn: navn,
                 type: type,
-                sett: getLastUsedSets(navn)
+                sett: getLastUsedSets(navn, type)
             };
             return {
                 ...prev,
@@ -228,8 +268,10 @@ export function useWorkout() {
             } else if (field === 'startTime') {
                 updatedOvelser[exIdx].sett[setIdx] = { ...set, startTime: value, completed: false, completedAt: undefined };
             } else {
-                const val = value === '' ? 0 : Number(value);
-                updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: val };
+                // Support decimal input: replace comma with dot for Norwegian locale
+                const strVal = String(value).replace(',', '.');
+                const val = strVal === '' ? 0 : parseFloat(strVal);
+                updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: isNaN(val) ? 0 : val };
             }
 
             const nextState = { ...prev, ovelser: updatedOvelser };
@@ -271,7 +313,12 @@ export function useWorkout() {
                 updatedOvelser[exIdx].sett[setIdx] = { ...rest, completed: false };
             }
 
-            return { ...prev, ovelser: updatedOvelser };
+            const nextState = { ...prev, ovelser: updatedOvelser };
+
+            // Auto-checkpoint to cloud on every set toggle (prevents data loss on app switch)
+            saveActiveWorkoutToCloud(nextState);
+
+            return nextState;
         });
     };
 

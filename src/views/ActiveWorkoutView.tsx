@@ -201,7 +201,9 @@ export function ActiveWorkoutView({
                                                     {ex.type !== 'Egenvekt' && (
                                                         <div className="col-span-4 relative">
                                                             <input
-                                                                type="number"
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                pattern="[0-9]*[.,]?[0-9]*"
                                                                 value={set.kg}
                                                                 onFocus={(e) => e.target.select()}
                                                                 onChange={(e) => onUpdateSet(exIdx, sIdx, 'kg', e.target.value)}

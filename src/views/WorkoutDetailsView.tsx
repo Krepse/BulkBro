@@ -154,7 +154,7 @@ export function WorkoutDetailsView({ workout, onNavigate, onEdit, onDelete, onUp
             // Find max weight in ALL previous workouts for same exercise name
             let historyMax = 0;
             previousWorkouts.forEach(pw => {
-                const sameEx = pw.ovelser.find(pe => pe.navn === ex.navn); // Match by name!
+                const sameEx = pw.ovelser.find(pe => pe.navn === ex.navn && pe.type === ex.type); // Match by name AND type!
                 if (sameEx && sameEx.sett) {
                     const m = Math.max(...sameEx.sett.map(s => s.kg));
                     if (m > historyMax) historyMax = m;
