@@ -8,6 +8,7 @@ import type { Exercise, Program, ProgramExercise, ExerciseType } from './types';
 import { Icons } from './components/ui/Icons';
 import { HomeView } from './views/HomeView';
 import { ActiveWorkoutView } from './views/ActiveWorkoutView';
+import { YogaTimerView } from './views/YogaTimerView';
 import { HistoryView } from './views/HistoryView';
 import { AuthView } from './views/AuthView';
 import { ProgramSelectView } from './views/ProgramSelectView';
@@ -169,6 +170,18 @@ export default function App() {
 
   const renderContent = () => {
     if (activeWorkout && view === 'active') {
+      // Yoga workouts get the special YogaTimerView
+      const isYoga = activeWorkout.navn.toLowerCase().includes('yoga');
+      if (isYoga) {
+        return (
+          <YogaTimerView
+            workout={activeWorkout}
+            onFinish={() => { finishWorkout(); setView('home'); }}
+            onNavigate={handleNavigate}
+          />
+        );
+      }
+
       return (
         <ActiveWorkoutView
           workout={activeWorkout}
@@ -180,7 +193,7 @@ export default function App() {
           onToggleSet={toggleSetComplete}
           onAddSet={addSetToExercise}
           onAddExercise={() => {
-            setReturnView('active'); // active workout view
+            setReturnView('active');
             setView('select_exercise');
           }}
           restTimer={restTimer}

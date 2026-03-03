@@ -53,6 +53,21 @@ export function ProgramSelectView({
                     </div>
                 </button>
 
+                {/* Yoga Timer Option */}
+                <button
+                    onClick={() => onStartProgram({ id: -99, navn: 'Yoga', ovelser: [], isDefault: true })}
+                    className="w-full p-6 rounded-[2.5rem] shadow-sm border-2 border-emerald-200 flex items-center gap-4 hover:shadow-md hover:border-emerald-300 transition-all group text-left"
+                    style={{ background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)' }}
+                >
+                    <div className="w-16 h-16 bg-emerald-100 rounded-3xl flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
+                        <span className="text-3xl">🧘</span>
+                    </div>
+                    <div>
+                        <h3 className="font-black text-emerald-800 text-xl uppercase tracking-tighter italic">Yoga</h3>
+                        <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest">Timer · Strava Sync</p>
+                    </div>
+                </button>
+
                 <div className="h-px bg-slate-100 my-2"></div>
 
                 {/* RECOMMENDED PROGRAMS SECTION */}

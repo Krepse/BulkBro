@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="no">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BulkBro — Yoga Timer (Kombinert)</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0f172a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .phone-frame {
+            width: 375px;
+            height: 812px;
+            border-radius: 40px;
+            overflow: hidden;
+            background: linear-gradient(180deg, #022c22 0%, #064e3b 50%, #065f46 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 55px 30px 40px;
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        .header h2 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            color: #34d399;
+            font-weight: 700;
+        }
+
+        .header h3 {
+            font-size: 28px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -1px;
+            font-style: italic;
+            color: white;
+            margin-top: 4px;
+        }
+
+        /* Circle Timer from Design 1, styled with Design 2 green */
+        .circle-container {
+            position: relative;
+            width: 260px;
+            height: 260px;
+        }
+
+        .circle-bg {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: rgba(52, 211, 153, 0.06);
+            border: 3px solid rgba(52, 211, 153, 0.15);
+        }
+
+        .circle-progress {
+            position: absolute;
+            inset: -2px;
+        }
+
+        .circle-progress svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .circle-progress circle {
+            fill: none;
+            stroke: #34d399;
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-dasharray: 816;
+            stroke-dashoffset: 204;
+            filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.5));
+        }
+
+        .pulse-ring {
+            position: absolute;
+            inset: -15px;
+            border-radius: 50%;
+            border: 2px solid rgba(52, 211, 153, 0.15);
+            animation: pulse 3s ease-in-out infinite;
+        }
+
+        .pulse-ring2 {
+            animation-delay: 1.5s;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 0.5;
+            }
+
+            50% {
+                transform: scale(1.08);
+                opacity: 0;
+            }
+        }
+
+        .timer-display {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timer-time {
+            font-size: 52px;
+            font-weight: 900;
+            color: white;
+            letter-spacing: -2px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .timer-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: #6ee7b7;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        /* Stats from Design 2 */
+        .stats-row {
+            display: flex;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .stat-card {
+            flex: 1;
+            text-align: center;
+            padding: 14px 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            border: 1px solid rgba(52, 211, 153, 0.1);
+        }
+
+        .stat-card .value {
+            font-size: 22px;
+            font-weight: 900;
+            color: white;
+        }
+
+        .stat-card .value.heart {
+            color: #ef4444;
+        }
+
+        .stat-card .label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #6ee7b7;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        /* Stop Button from Design 2 */
+        .btn-finish {
+            width: 100%;
+            padding: 20px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            border: none;
+            color: white;
+            font-weight: 900;
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            box-shadow: 0 8px 30px rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="phone-frame">
+        <div class="header">
+            <h2>Aktiv Økt</h2>
+            <h3>🧘 Yoga</h3>
+        </div>
+
+        <div class="circle-container">
+            <div class="pulse-ring"></div>
+            <div class="pulse-ring pulse-ring2"></div>
+            <div class="circle-bg"></div>
+            <div class="circle-progress">
+                <svg viewBox="0 0 264 264">
+                    <circle cx="132" cy="132" r="130" />
+                </svg>
+            </div>
+            <div class="timer-display">
+                <div class="timer-time">34:17</div>
+                <div class="timer-label">Varighet</div>
+            </div>
+        </div>
+
+        <div style="width: 100;">
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="value">148</div>
+                    <div class="label">Kalorier</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value heart">♥ 72</div>
+                    <div class="label">Snitt Puls</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">Lav</div>
+                    <div class="label">Intensitet</div>
+                </div>
+            </div>
+
+            <button class="btn-finish" style="margin-top: 16px;">⏹ Avslutt Økt</button>
+        </div>
+    </div>
+</body>
+
+</html>

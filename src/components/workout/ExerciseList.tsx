@@ -117,7 +117,7 @@ export function ExerciseList({
                     value={search}
                     onChange={(e) => onSearchChange(e.target.value)}
                     placeholder="Søk etter øvelse..."
-                    className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] border border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold outline-none"
+                    className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] bg-white text-slate-900 border border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold outline-none"
                     autoFocus
                 />
             </div>

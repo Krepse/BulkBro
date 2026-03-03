@@ -6,6 +6,7 @@ import { SortableList } from '../components/ui/SortableList';
 import { RestTimerOverlay } from '../components/workout/RestTimerOverlay';
 import { Stopwatch } from '../components/ui/Stopwatch';
 import { ExerciseCoach } from '../components/ExerciseCoach';
+import { DecimalInput } from '../components/ui/DecimalInput';
 import { hasTips } from '../data/exerciseTips';
 
 interface ActiveWorkoutViewProps {
@@ -199,17 +200,13 @@ export function ActiveWorkoutView({
                                             ) : (
                                                 <>
                                                     {ex.type !== 'Egenvekt' && (
-                                                        <div className="col-span-4 relative">
-                                                            <input
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                pattern="[0-9]*[.,]?[0-9]*"
+                                                        <div className="col-span-4">
+                                                            <DecimalInput
                                                                 value={set.kg}
-                                                                onFocus={(e) => e.target.select()}
-                                                                onChange={(e) => onUpdateSet(exIdx, sIdx, 'kg', e.target.value)}
-                                                                className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all placeholder-transparent"
+                                                                onChange={(val) => onUpdateSet(exIdx, sIdx, 'kg', val)}
+                                                                className="w-full bg-slate-50 border-none rounded-2xl py-3 px-2 text-center font-bold text-slate-700 text-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                                                                label="KG"
                                                             />
-                                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 pointer-events-none">KG</span>
                                                         </div>
                                                     )}
 

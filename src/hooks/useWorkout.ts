@@ -66,14 +66,9 @@ export function useWorkout() {
         isSyncingRef.current = true;
 
         const sync = async () => {
-            // 1. Workouts
             await syncWorkouts(() => isMounted);
-
-            // 2. Programs
             if (!isMounted) return;
             await syncPrograms(() => isMounted);
-
-            // 3. Exercises
             if (!isMounted) return;
             await syncExercises(() => isMounted);
         };
@@ -87,12 +82,9 @@ export function useWorkout() {
         };
     }, [user?.id]);
 
-
     // --- EFFECTS: CLEAR STATE ON LOGOUT ---
     useEffect(() => {
-        console.log('👤 User effect triggered. User:', user ? 'EXISTS' : 'NULL');
         if (!user) {
-            console.log('🗑️ CLEARING ALL STATE - user is null');
             clearHistory();
             clearPrograms();
             clearExercises();
@@ -100,23 +92,84 @@ export function useWorkout() {
         }
     }, [user?.id]);
 
-    // --- EFFECT: AUTO-CHECKPOINT ON APP BACKGROUND (iPhone fix) ---
+    // ===========================================================
+    // DEBOUNCED AUTO-CHECKPOINT SYSTEM
+    // ===========================================================
+    // cloudIdRef tracks the Supabase UUID so all saves after the
+    // first are UPSERTs (preventing duplicate workout creation).
+    // ===========================================================
+    const cloudIdRef = useRef<string | null>(null);
+    const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isSavingCheckpointRef = useRef(false);
+
     const activeWorkoutRef = useRef(activeWorkout);
     activeWorkoutRef.current = activeWorkout;
 
     const userRef = useRef(user);
     userRef.current = user;
 
+    // Core save function — uses cloudIdRef to ensure upsert
+    const saveCheckpoint = async (workoutToSave: Okt) => {
+        const currentUser = userRef.current;
+        if (!currentUser || isSavingCheckpointRef.current) return;
+
+        isSavingCheckpointRef.current = true;
+        try {
+            // Inject the cloud UUID if we have one (ensures upsert, not insert)
+            const workoutWithCloudId: Okt = cloudIdRef.current
+                ? { ...workoutToSave, id: cloudIdRef.current }
+                : workoutToSave;
+
+            console.log("☁️ Checkpointing workout...", cloudIdRef.current ? `(upsert ${cloudIdRef.current})` : '(new)');
+            const newId = await supabaseService.saveWorkout(workoutWithCloudId, currentUser.id);
+
+            if (newId) {
+                cloudIdRef.current = String(newId);
+                setActiveWorkout(prev => prev ? { ...prev, id: newId } : null);
+            }
+        } catch (err) {
+            console.error("Failed to checkpoint workout:", err);
+        } finally {
+            isSavingCheckpointRef.current = false;
+        }
+    };
+
+    const saveCheckpointRef = useRef(saveCheckpoint);
+    saveCheckpointRef.current = saveCheckpoint;
+
+    // Debounced auto-save: saves 5 seconds after the last change
+    useEffect(() => {
+        if (!activeWorkout || !user) return;
+        if (activeWorkout.endTime) return; // Don't auto-save finished workouts
+
+        if (checkpointTimerRef.current) {
+            clearTimeout(checkpointTimerRef.current);
+        }
+
+        checkpointTimerRef.current = setTimeout(() => {
+            saveCheckpointRef.current(activeWorkout);
+        }, 5000);
+
+        return () => {
+            if (checkpointTimerRef.current) {
+                clearTimeout(checkpointTimerRef.current);
+            }
+        };
+    }, [activeWorkout, user]);
+
+    // Immediate save when app goes to background (iPhone fix)
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'hidden') {
                 const currentWorkout = activeWorkoutRef.current;
                 const currentUser = userRef.current;
-                if (currentWorkout && currentUser) {
-                    // Persist to localStorage immediately (synchronous)
+                if (currentWorkout && currentUser && !currentWorkout.endTime) {
                     localStorage.setItem('activeWorkout', JSON.stringify(currentWorkout));
-                    // Also try to push to cloud (best-effort, may be killed by OS)
-                    supabaseService.saveWorkout(currentWorkout, currentUser.id)
+                    const workoutWithCloudId = cloudIdRef.current
+                        ? { ...currentWorkout, id: cloudIdRef.current }
+                        : currentWorkout;
+                    supabaseService.saveWorkout(workoutWithCloudId, currentUser.id)
+                        .then(newId => { if (newId) cloudIdRef.current = String(newId); })
                         .catch(err => console.error('Background checkpoint failed:', err));
                 }
             }
@@ -129,7 +182,6 @@ export function useWorkout() {
     // --- HELPERS ---
 
     const getLastUsedSets = (exerciseName: string, exerciseType?: ExerciseType) => {
-        // Sort by date descending to get the most recent workout first
         const sorted = [...workoutHistory].sort((a, b) => {
             const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
             const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
@@ -137,12 +189,10 @@ export function useWorkout() {
         });
 
         for (const workout of sorted) {
-            // Match by both name AND type if type is provided
             const exercise = workout.ovelser.find(e =>
                 e.navn === exerciseName && (!exerciseType || e.type === exerciseType)
             );
             if (exercise && exercise.sett && exercise.sett.length > 0) {
-                // Only return sets that were actually completed with valid data
                 const validSets = exercise.sett.filter(s => s.completed && (s.kg > 0 || s.reps > 0));
                 if (validSets.length > 0) {
                     return validSets.map(s => ({
@@ -160,6 +210,9 @@ export function useWorkout() {
     // --- WORKOUT ACTIONS ---
 
     const startNewWorkout = (program?: Program) => {
+        // Reset cloud tracking for new workout
+        cloudIdRef.current = null;
+
         const warmUpExercise: Ovelse = {
             id: crypto.randomUUID(),
             navn: "Oppvarming",
@@ -236,22 +289,7 @@ export function useWorkout() {
         });
     };
 
-    // --- CLOUD SYNC HELPER ---
-    const saveActiveWorkoutToCloud = async (workoutToSave: Okt) => {
-        if (!user) return;
-        try {
-            console.log("Checkpointing active workout to cloud...");
-            const newId = await supabaseService.saveWorkout(workoutToSave, user.id);
-            if (newId && newId !== workoutToSave.id) {
-                console.log(`Updated active workout ID from ${workoutToSave.id} to ${newId}`);
-                setActiveWorkout(prev => prev ? { ...prev, id: newId } : null);
-            }
-        } catch (err) {
-            console.error("Failed to checkpoint workout:", err);
-        }
-    };
-
-    const updateSet = (exIdx: number, setIdx: number, field: string, value: any, shouldSync: boolean = false) => {
+    const updateSet = (exIdx: number, setIdx: number, field: string, value: any, _shouldSync: boolean = false) => {
         setActiveWorkout(prev => {
             if (!prev) return null;
             const updatedOvelser = [...prev.ovelser];
@@ -268,19 +306,12 @@ export function useWorkout() {
             } else if (field === 'startTime') {
                 updatedOvelser[exIdx].sett[setIdx] = { ...set, startTime: value, completed: false, completedAt: undefined };
             } else {
-                // Support decimal input: replace comma with dot for Norwegian locale
                 const strVal = String(value).replace(',', '.');
                 const val = strVal === '' ? 0 : parseFloat(strVal);
                 updatedOvelser[exIdx].sett[setIdx] = { ...set, [field]: isNaN(val) ? 0 : val };
             }
 
-            const nextState = { ...prev, ovelser: updatedOvelser };
-
-            if (shouldSync) {
-                saveActiveWorkoutToCloud(nextState);
-            }
-
-            return nextState;
+            return { ...prev, ovelser: updatedOvelser };
         });
     };
 
@@ -313,12 +344,8 @@ export function useWorkout() {
                 updatedOvelser[exIdx].sett[setIdx] = { ...rest, completed: false };
             }
 
-            const nextState = { ...prev, ovelser: updatedOvelser };
-
-            // Auto-checkpoint to cloud on every set toggle (prevents data loss on app switch)
-            saveActiveWorkoutToCloud(nextState);
-
-            return nextState;
+            // Auto-checkpoint handled by debounced useEffect — NOT called here
+            return { ...prev, ovelser: updatedOvelser };
         });
     };
 
@@ -374,6 +401,12 @@ export function useWorkout() {
 
     const finishWorkout = async () => {
         if (activeWorkout) {
+            // Cancel any pending checkpoint timer
+            if (checkpointTimerRef.current) {
+                clearTimeout(checkpointTimerRef.current);
+                checkpointTimerRef.current = null;
+            }
+
             // Auto-stop any running timers before filtering
             const now = new Date();
             const autoStoppedExercises = activeWorkout.ovelser.map(ex => {
@@ -398,14 +431,18 @@ export function useWorkout() {
                 sett: ex.sett.filter(s => s.completed)
             })).filter(ex => ex.sett.length > 0);
 
+            // Use cloud UUID if we have one (ensures upsert, not another insert)
+            const workoutId = cloudIdRef.current || activeWorkout.id;
+
             const finishedWorkout: Okt = {
                 ...activeWorkout,
+                id: workoutId,
                 ovelser: filteredExercises,
                 endTime: activeWorkout.endTime || new Date().toISOString()
             };
 
             // Optimistic Update
-            const existingIndex = workoutHistory.findIndex(w => w.id === finishedWorkout.id);
+            const existingIndex = workoutHistory.findIndex(w => String(w.id) === String(finishedWorkout.id));
             let updatedHistory;
             if (existingIndex >= 0) {
                 updatedHistory = [...workoutHistory];
@@ -415,6 +452,7 @@ export function useWorkout() {
             }
             setWorkoutHistory(updatedHistory);
             setActiveWorkout(null);
+            cloudIdRef.current = null;
 
             // Sync to Supabase
             if (user) {
@@ -422,7 +460,7 @@ export function useWorkout() {
                     const newId = await supabaseService.saveWorkout(finishedWorkout, user.id);
                     if (newId) {
                         setWorkoutHistory(prev => prev.map(w =>
-                            w.id === finishedWorkout.id ? { ...w, id: newId } : w
+                            String(w.id) === String(finishedWorkout.id) ? { ...w, id: newId } : w
                         ));
                     }
                 } catch (err) {
@@ -470,7 +508,7 @@ export function useWorkout() {
         customExercises,
         activeWorkout,
         startWorkout: startNewWorkout,
-        cancelWorkout: () => setActiveWorkout(null),
+        cancelWorkout: () => { setActiveWorkout(null); cloudIdRef.current = null; },
         addExercise,
         removeExercise,
         reorderExercises,
