@@ -188,7 +188,8 @@ export const supabaseService = {
                     workout_id: newWorkoutId,
                     user_id: userId,
                     name: ex.navn,
-                    type: ex.type
+                    type: ex.type,
+                    order_index: exIndex
                 })
                 .select()
                 .single();
@@ -203,13 +204,15 @@ export const supabaseService = {
 
             if (ex.sett.length === 0) continue;
 
-            const setsPayload = ex.sett.map((s) => ({
+            const setsPayload = ex.sett.map((s, setIndex) => ({
                 exercise_id: newExId,
                 user_id: userId,
                 kg: s.kg,
                 reps: s.reps,
                 completed: s.completed,
-                completed_at: s.completedAt
+                completed_at: s.completedAt,
+                start_time: s.startTime,
+                order_index: setIndex
             }));
 
             const { error: sError } = await supabase
