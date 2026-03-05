@@ -7,7 +7,7 @@ import { useWorkoutHistory } from './useWorkoutHistory';
 import { supabaseService } from '../services/supabaseService';
 
 export function useWorkout() {
-    const { user } = useAuth();
+    const { user, loading } = useAuth();
 
     // --- COMPOSED HOOKS ---
     const {
@@ -38,9 +38,19 @@ export function useWorkout() {
     });
 
     // --- EFFECTS: SAVE TO LOCALSTORAGE ---
-    useEffect(() => { persistHistory(); }, [workoutHistory]);
-    useEffect(() => { persistPrograms(); }, [programs]);
-    useEffect(() => { persistExercises(); }, [customExercises]);
+    // Guard: Don't persist empty arrays to localStorage during initial auth loading.
+    // hasLoadedRef becomes true only after auth has resolved and user is available.
+    const hasLoadedRef = useRef(false);
+
+    useEffect(() => {
+        if (user && !loading) {
+            hasLoadedRef.current = true;
+        }
+    }, [user, loading]);
+
+    useEffect(() => { if (hasLoadedRef.current) persistHistory(); }, [workoutHistory]);
+    useEffect(() => { if (hasLoadedRef.current) persistPrograms(); }, [programs]);
+    useEffect(() => { if (hasLoadedRef.current) persistExercises(); }, [customExercises]);
 
     useEffect(() => {
         if (activeWorkout) {
@@ -51,19 +61,11 @@ export function useWorkout() {
     }, [activeWorkout]);
 
     // --- EFFECTS: SYNC WITH SUPABASE ---
-    const isSyncingRef = useRef(false);
-
     useEffect(() => {
         console.log('🔄 Sync effect triggered. User:', user?.email || 'null');
         if (!user) return;
 
-        if (isSyncingRef.current) {
-            console.log('⏸️ Sync already in progress, skipping');
-            return;
-        }
-
         let isMounted = true;
-        isSyncingRef.current = true;
 
         const sync = async () => {
             await syncWorkouts(() => isMounted);
@@ -73,9 +75,7 @@ export function useWorkout() {
             await syncExercises(() => isMounted);
         };
 
-        sync().finally(() => {
-            isSyncingRef.current = false;
-        });
+        sync();
 
         return () => {
             isMounted = false;
@@ -83,14 +83,16 @@ export function useWorkout() {
     }, [user?.id]);
 
     // --- EFFECTS: CLEAR STATE ON LOGOUT ---
+    // Guard: Only clear when auth has FINISHED loading and user is truly null (actual logout).
+    // Without this guard, this fires on every cold start while auth session is still loading.
     useEffect(() => {
-        if (!user) {
+        if (!user && !loading) {
             clearHistory();
             clearPrograms();
             clearExercises();
             setActiveWorkout(null);
         }
-    }, [user?.id]);
+    }, [user?.id, loading]);
 
     // ===========================================================
     // DEBOUNCED AUTO-CHECKPOINT SYSTEM
@@ -101,6 +103,7 @@ export function useWorkout() {
     const cloudIdRef = useRef<string | null>(null);
     const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isSavingCheckpointRef = useRef(false);
+    const checkpointPromiseRef = useRef<Promise<void> | null>(null);
 
     const activeWorkoutRef = useRef(activeWorkout);
     activeWorkoutRef.current = activeWorkout;
@@ -147,7 +150,8 @@ export function useWorkout() {
         }
 
         checkpointTimerRef.current = setTimeout(() => {
-            saveCheckpointRef.current(activeWorkout);
+            const p = saveCheckpointRef.current(activeWorkout);
+            checkpointPromiseRef.current = p as Promise<void>;
         }, 5000);
 
         return () => {
@@ -212,6 +216,7 @@ export function useWorkout() {
     const startNewWorkout = (program?: Program) => {
         // Reset cloud tracking for new workout
         cloudIdRef.current = null;
+        checkpointPromiseRef.current = null;
 
         const warmUpExercise: Ovelse = {
             id: crypto.randomUUID(),
@@ -246,7 +251,7 @@ export function useWorkout() {
             const nyOkt: Okt = {
                 id: Date.now(),
                 navn: program.navn,
-                dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                dato: new Date().toLocaleString('no-NO'),
                 startTime: new Date().toISOString(),
                 ovelser: exercises
             };
@@ -255,7 +260,7 @@ export function useWorkout() {
             const nyOkt: Okt = {
                 id: Date.now(),
                 navn: 'Ny Økt',
-                dato: new Date().toLocaleString('no-NO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                dato: new Date().toLocaleString('no-NO'),
                 startTime: new Date().toISOString(),
                 ovelser: [warmUpExercise]
             };
@@ -401,11 +406,32 @@ export function useWorkout() {
 
     const finishWorkout = async () => {
         if (activeWorkout) {
-            // Cancel any pending checkpoint timer
+            // 1. Cancel any pending checkpoint timer
             if (checkpointTimerRef.current) {
                 clearTimeout(checkpointTimerRef.current);
                 checkpointTimerRef.current = null;
             }
+
+            // 2. WAIT for any in-flight checkpoint to finish!
+            // Without this, finishWorkout and saveCheckpoint call saveWorkout()
+            // concurrently — both INSERT new exercises then DELETE each other's,
+            // resulting in 0 exercises and potential duplicate workout rows.
+            if (checkpointPromiseRef.current) {
+                console.log("⏳ Waiting for in-flight checkpoint before final save...");
+                try { await checkpointPromiseRef.current; } catch { /* proceed */ }
+                checkpointPromiseRef.current = null;
+            }
+            // Belt-and-suspenders: poll the saving flag with a safety timeout
+            if (isSavingCheckpointRef.current) {
+                console.log("⏳ Checkpoint flag still set, waiting...");
+                await new Promise<void>(resolve => {
+                    const iv = setInterval(() => {
+                        if (!isSavingCheckpointRef.current) { clearInterval(iv); resolve(); }
+                    }, 100);
+                    setTimeout(() => { clearInterval(iv); resolve(); }, 5000);
+                });
+            }
+
 
             // Auto-stop any running timers before filtering
             const now = new Date();

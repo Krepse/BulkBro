@@ -90,6 +90,7 @@ export function usePrograms(userId: string | undefined) {
 
     const clearState = () => {
         setPrograms([]);
+        localStorage.removeItem('programs');
     };
 
     return {

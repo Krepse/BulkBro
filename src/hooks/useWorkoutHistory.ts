@@ -35,6 +35,7 @@ export function useWorkoutHistory(userId: string | undefined) {
             // 1. Push local-only workouts to cloud first
             const localOnlyWorkouts = workoutHistory.filter(w => typeof w.id === 'number');
             if (localOnlyWorkouts.length > 0) {
+                console.log('🔼 Pushing', localOnlyWorkouts.length, 'local-only workouts to cloud');
                 for (const workout of localOnlyWorkouts) {
                     if (!isMounted()) break;
                     await supabaseService.saveWorkout(workout, userId);
@@ -46,17 +47,29 @@ export function useWorkoutHistory(userId: string | undefined) {
             const remoteWorkouts = await supabaseService.fetchWorkouts(userId);
             if (!isMounted()) return;
 
+            console.log('📥 SYNC: Remote workouts from Supabase:', remoteWorkouts.length);
+            remoteWorkouts.forEach(w => {
+                console.log(`  📋 "${w.navn}" (id=${String(w.id).slice(0, 8)}...) → ${w.ovelser.length} exercises, ${w.ovelser.reduce((sum: number, e: any) => sum + (e.sett?.length || 0), 0)} sets`);
+            });
+
+            console.log('💾 SYNC: Local workouts before merge:', workoutHistory.length);
+            workoutHistory.forEach(w => {
+                console.log(`  📋 "${w.navn}" (id=${String(w.id).slice(0, 8)}...) → ${w.ovelser.length} exercises, ${w.ovelser.reduce((sum: number, e: any) => sum + (e.sett?.length || 0), 0)} sets`);
+            });
+
             // 3. Merge: Keep any local workouts that aren't in remote yet
-            // (e.g., just-finished workout that hasn't appeared in remote)
             const remoteIds = new Set(remoteWorkouts.map(w => String(w.id)));
             const localNotInRemote = workoutHistory.filter(w => {
                 const id = String(w.id);
-                // Keep local workouts with numeric IDs (not yet synced)
-                // Also keep workouts with endTime that aren't in remote (just finished)
                 return !remoteIds.has(id) && (typeof w.id === 'number' || w.endTime);
             });
 
             const merged = [...localNotInRemote, ...remoteWorkouts];
+            console.log('🔄 SYNC: Merged result:', merged.length, 'workouts');
+            merged.forEach(w => {
+                console.log(`  📋 "${w.navn}" (id=${String(w.id).slice(0, 8)}...) → ${w.ovelser.length} exercises`);
+            });
+
             if (isMounted()) setWorkoutHistory(merged);
         } catch (err) {
             console.error("Sync error:", err);
@@ -69,6 +82,7 @@ export function useWorkoutHistory(userId: string | undefined) {
 
     const clearState = () => {
         setWorkoutHistory([]);
+        localStorage.removeItem('workoutHistory');
     };
 
     return {

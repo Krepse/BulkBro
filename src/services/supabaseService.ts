@@ -14,6 +14,13 @@ import type { Okt, Program, Exercise } from '../types';
 // Let's rely on the row having its own ID, and we query by matching data->>id if needed,
 // OR more simply: We enforce that `id` in the types becomes a string (UUID) over time.
 
+// ============================================================
+// GLOBAL SAVE MUTEX — serializes all saveWorkout calls.
+// Without this, concurrent saves INSERT new exercises then
+// DELETE each other's inserts, resulting in 0 exercises.
+// ============================================================
+let saveMutexChain: Promise<any> = Promise.resolve();
+
 export const supabaseService = {
     // --- Workouts (Relational) ---
     async fetchWorkouts(userId: string): Promise<Okt[]> {
@@ -97,8 +104,27 @@ export const supabaseService = {
     },
 
     async saveWorkout(workout: Okt, userId: string) {
+        // Serialize through mutex — prevents concurrent saves from
+        // deleting each other's exercises
+        const result = await new Promise<string | undefined>((resolve) => {
+            saveMutexChain = saveMutexChain.then(async () => {
+                try {
+                    const id = await this._saveWorkoutImpl(workout, userId);
+                    resolve(id);
+                } catch (err) {
+                    console.error('saveWorkout mutex error:', err);
+                    resolve(undefined);
+                }
+            });
+        });
+        return result;
+    },
+
+    async _saveWorkoutImpl(workout: Okt, userId: string) {
         // 1. Save Workout
         let workoutId = typeof workout.id === 'string' && (workout.id as string).length > 20 ? workout.id : undefined;
+
+        console.log(`💪 SAVE: "${workout.navn}" with ${workout.ovelser.length} exercises, mode=${workoutId ? 'UPSERT' : 'INSERT'}`);
 
         // Capture Order
         const exerciseOrder = workout.ovelser.map(e => String(e.id));
@@ -124,92 +150,76 @@ export const supabaseService = {
             .single();
 
         if (!wData) {
-            console.error("Error saving workout:", wError);
+            console.error("❌ Error saving workout:", wError);
             return;
         }
 
         const newWorkoutId = wData.id;
+        console.log(`✅ Workout row saved: ${newWorkoutId.slice(0, 8)}...`);
 
-        // 2. Insert new exercises and sets FIRST (before deleting old ones)
-        // This ensures we don't lose data if the insert fails
+        // 2. Handle exercises
+        // CRITICAL: If workout has 0 exercises, skip exercise operations entirely.
+        // This prevents metadata-only updates (e.g., Strava analysis) from wiping exercises.
+        if (workout.ovelser.length === 0) {
+            console.log(`ℹ️ No exercises to save — preserving existing exercises in DB`);
+            return newWorkoutId;
+        }
+
+        // 3. For existing workouts (UPSERT): delete old exercises FIRST
+        // Sets are cascade-deleted via FK constraint on exercises.
+        if (workoutId) {
+            console.log(`🗑️ Deleting old exercises for ${newWorkoutId.slice(0, 8)}...`);
+            const { error: delError } = await supabase
+                .from('exercises')
+                .delete()
+                .eq('workout_id', newWorkoutId);
+            if (delError) console.error("❌ Error deleting old exercises:", delError);
+        }
+
+        // 4. Insert new exercises and sets
         const newExerciseIds: string[] = [];
-        let allInsertedOk = true;
 
         for (let exIndex = 0; exIndex < workout.ovelser.length; exIndex++) {
             const ex = workout.ovelser[exIndex];
 
-            // Don't pass the old ID — let DB generate a fresh UUID to avoid conflicts
             const { data: eData, error: eError } = await supabase
                 .from('exercises')
                 .insert({
                     workout_id: newWorkoutId,
                     user_id: userId,
                     name: ex.navn,
-                    type: ex.type,
-                    order_index: exIndex
+                    type: ex.type
                 })
                 .select()
                 .single();
 
             if (eError || !eData) {
-                console.error("Error saving exercise:", eError);
-                allInsertedOk = false;
+                console.error(`❌ Error saving exercise "${ex.navn}":`, eError);
                 continue;
             }
 
             const newExId = eData.id;
             newExerciseIds.push(newExId);
 
-            // 3. Save Sets with order_index
             if (ex.sett.length === 0) continue;
 
-            const setsPayload = ex.sett.map((s, setIndex) => {
-                return {
-                    // Let DB generate fresh UUID — old sets are cascade-deleted with old exercises
-                    exercise_id: newExId,
-                    user_id: userId,
-                    kg: s.kg,
-                    reps: s.reps,
-                    completed: s.completed,
-                    completed_at: s.completedAt,
-                    start_time: s.startTime,
-                    order_index: setIndex
-                };
-            });
+            const setsPayload = ex.sett.map((s) => ({
+                exercise_id: newExId,
+                user_id: userId,
+                kg: s.kg,
+                reps: s.reps,
+                completed: s.completed,
+                completed_at: s.completedAt
+            }));
 
             const { error: sError } = await supabase
                 .from('sets')
                 .insert(setsPayload);
 
-            if (sError) {
-                console.error("Error saving sets:", sError);
-                allInsertedOk = false;
-            }
+            if (sError) console.error(`❌ Error saving sets for "${ex.navn}":`, sError);
         }
 
-        // 4. SAFE DELETE: Only delete OLD exercises after new ones are confirmed
-        // This prevents data loss if the insert step fails
-        if (workoutId && newExerciseIds.length > 0) {
-            if (allInsertedOk) {
-                // All inserts succeeded — safe to clean up old exercises
-                const { error: delError } = await supabase
-                    .from('exercises')
-                    .delete()
-                    .eq('workout_id', newWorkoutId)
-                    .not('id', 'in', `(${newExerciseIds.join(',')})`);
-
-                if (delError) console.error("Error cleaning old exercises:", delError);
-            } else {
-                // Partial failure — roll back by removing the NEW exercises to keep old data intact
-                console.warn("Partial insert failure — rolling back new exercises to preserve old data");
-                if (newExerciseIds.length > 0) {
-                    await supabase
-                        .from('exercises')
-                        .delete()
-                        .in('id', newExerciseIds);
-                }
-            }
-        }
+        console.log(`📊 Inserted ${newExerciseIds.length}/${workout.ovelser.length} exercises`);
 
         // 5. Update exerciseOrder with the new IDs
         const newExerciseOrder = newExerciseIds.map(id => String(id));
@@ -223,7 +233,7 @@ export const supabaseService = {
             })
             .eq('id', newWorkoutId);
 
-        console.log("Workout saved to Supabase Relational DB:", newWorkoutId);
+        console.log(`✅ Workout fully saved: "${workout.navn}" → ${newWorkoutId.slice(0, 8)}... (${newExerciseIds.length} exercises)`);
         return newWorkoutId;
     },
 
@@ -292,18 +302,9 @@ export const supabaseService = {
         const cloudMap = new Map<string, any>();
         data?.forEach((row: any) => cloudMap.set(String(row.data.id), row));
 
-        // Push Local (Only push ones that originated from THIS user or represent new ones?)
-        // If we want a shared library, users should push their new definitions.
-        // We probably shouldn't overwrite existing ones if we don't own them, but for this app's simplicity:
-        // We try to upsert local definitions. RLS should handle permission errors if we try to overwrite others.
-        // But for "Add to global", we just ensure they exist.
-
         const upserts = localExercises.map(e => {
             const match = cloudMap.get(String(e.id));
 
-            // If it exists in cloud and created by someone else (match.user_id !== userId), we skip upserting to avoid RLS error
-            // unless we want to allow editing others' exercises (requires RLS update).
-            // Let's safe guard: Only upsert if it's NEW or if match.user_id === userId
             if (match && match.user_id !== userId) return null;
 
             return {
@@ -312,14 +313,11 @@ export const supabaseService = {
                 data: e,
                 updated_at: new Date().toISOString()
             };
-        }).filter(Boolean); // Remove nulls
+        }).filter(Boolean);
 
         if (upserts.length) await supabase.from('custom_exercises').upsert(upserts as any);
 
-        // Merge: Cloud Wins for existence? 
-        // We want all from cloud + our local ones (if any not synced yet).
         const merged = [...localExercises];
-        // Add anything from cloud that we don't have locally
         cloudMap.forEach((row, id) => {
             if (!localExercises.find(e => String(e.id) === id)) merged.push(row.data);
         });
@@ -328,7 +326,6 @@ export const supabaseService = {
     },
 
     async saveExercise(exercise: Exercise, userId: string) {
-        // Delete existing to ensure clean update (avoids duplicate rows with same data->>id)
         await supabase.from('custom_exercises').delete().eq('user_id', userId).eq('data->>id', String(exercise.id));
 
         await supabase.from('custom_exercises').insert({
@@ -343,9 +340,6 @@ export const supabaseService = {
     },
 
     // --- Default Programs ---
-    /**
-     * Fetch all default programs (available to all users)
-     */
     async fetchDefaultPrograms(): Promise<Program[]> {
         const { data, error } = await supabase
             .from('programs')
@@ -360,34 +354,22 @@ export const supabaseService = {
         return data?.map((row: any) => row.data) || [];
     },
 
-    /**
-     * Copy a default program to user's library
-     * Creates a new program with a new ID and marks it as copied from template
-     */
     async copyDefaultProgramToUser(defaultProgram: Program, userId: string): Promise<Program> {
-        // Create a new program with a new ID
         const newProgram: Program = {
             ...defaultProgram,
-            id: Date.now(), // Generate new ID
-            isDefault: false, // Mark as user's copy
-            templateId: defaultProgram.id // Track which template it came from
+            id: Date.now(),
+            isDefault: false,
+            templateId: defaultProgram.id
         };
 
-        // Save to database
         await this.saveProgram(newProgram, userId);
-
         return newProgram;
     },
 
-    /**
-     * Seed default programs into the database
-     * This should be run once to populate the default programs
-     * Only callable by admin users
-     */
     async seedDefaultPrograms(programs: Program[], adminUserId: string) {
         const programsToInsert = programs.map(p => ({
             id: p.id,
-            user_id: adminUserId, // Admin user owns the default programs
+            user_id: adminUserId,
             data: p,
             is_default: true,
             updated_at: new Date().toISOString()

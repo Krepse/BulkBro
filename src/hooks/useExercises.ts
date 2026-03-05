@@ -54,6 +54,7 @@ export function useExercises(userId: string | undefined) {
 
     const clearState = () => {
         setCustomExercises([]);
+        localStorage.removeItem('customExercises');
     };
 
     return {
